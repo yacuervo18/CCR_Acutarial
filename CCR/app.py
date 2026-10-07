@@ -1,5 +1,6 @@
 import streamlit as st
 from datetime import date, datetime
+from html import escape
 
 from src.phase1.config import PROCESOS, proceso_por_codigo
 from src.phase1.domain import EstadoProceso
@@ -22,16 +23,36 @@ repo.ensure_period(period_default)
 periods = repo.periods()
 
 st.markdown("""<style>
-.block-container {padding-top: 1rem; max-width: 1500px;}
+.block-container {padding: .65rem 1.5rem 1rem; max-width: 1500px;}
+.ccr-dashboard-title {font-size: 1.45rem; font-weight: 650; line-height: 1.2; margin: .35rem 0 .1rem;}
+.ccr-dashboard-caption {font-size: .75rem; color: #667085; margin-bottom: .55rem;}
+.ccr-dashboard [data-testid="stHorizontalBlock"] {gap: .7rem;}
+.ccr-dashboard [data-testid="column"] {padding: 0;}
 .ccr-sticky {position: sticky; top: 0; z-index: 999; background: #ffffff; padding: .65rem 0 .8rem; border-bottom: 1px solid #e6e8eb;}
 .ccr-bar {height: 13px; display: flex; border-radius: 8px; overflow: hidden; background: #eef0f2;}
 .ccr-segment {height: 100%;}
-.ccr-card {border: 1px solid #e6e8eb; border-radius: 12px; padding: 1rem; background: white; margin-bottom: 1rem;}
-.ccr-kpi {border: 1px solid #e6e8eb; border-radius: 10px; padding: .8rem; background: #fff;}
-.ccr-kpi-label {font-size: .78rem; color: #667085;}
-.ccr-kpi-value {font-size: 1.65rem; font-weight: 700; color: #17202a;}
-.ccr-muted {color: #667085; font-size: .9rem;}
-.ccr-row {padding: .45rem 0; border-bottom: 1px solid #f0f1f2;}
+.ccr-muted {color: #667085; font-size: .72rem;}
+.ccr-kpi {min-height: 78px; box-sizing: border-box; border: 1px solid #e8e8e6; border-radius: 10px; padding: .55rem .45rem; background: #f8f8f7; text-align: center;}
+.ccr-kpi-label {font-size: .71rem; line-height: 1.2; color: #626262; min-height: 1.7em;}
+.ccr-kpi-value {font-size: 1.45rem; line-height: 1.25; font-weight: 500; color: #252525; margin-top: .2rem;}
+.ccr-kpi-value--danger {color: #c83232;}
+.ccr-kpi-value--warning {color: #9b5b00;}
+.ccr-panel {border: 1px solid #dededc; border-radius: 12px; padding: .7rem .85rem; background: #fff; min-height: 306px; box-sizing: border-box;}
+.ccr-panel-header {font-size: .95rem; font-weight: 600; text-align: right; color: #303030; padding-bottom: .5rem; border-bottom: 1px solid #dededc;}
+.ccr-panel-header--left {text-align: left;}
+.ccr-process-row {display: flex; align-items: center; gap: .55rem; min-height: 38px; border-bottom: 1px solid #dededc; font-size: .82rem;}
+.ccr-process-row:last-child {border-bottom: 0;}
+.ccr-status-dot {width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%;}
+.ccr-process-name {flex: 1; color: #373737; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.ccr-process-state {font-size: .75rem; white-space: nowrap;}
+.ccr-alert-row {padding: .62rem 0 .62rem .2rem; border-bottom: 1px solid #dededc;}
+.ccr-alert-row:last-child {border-bottom: 0;}
+.ccr-alert-title {font-size: .84rem; color: #373737; font-weight: 500;}
+.ccr-alert-description {font-size: .73rem; color: #747474; margin-top: .18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.ccr-bottom-panel {border: 1px solid #dededc; border-radius: 12px; padding: .7rem .85rem; background: #fff; min-height: 108px; box-sizing: border-box;}
+.ccr-bottom-row {display: flex; justify-content: space-between; gap: .5rem; padding: .52rem 0; border-top: 1px solid #dededc; font-size: .8rem;}
+.ccr-bottom-row:first-child {margin-top: .45rem;}
+.ccr-bottom-date {color: #686868; white-space: nowrap;}
 </style>""", unsafe_allow_html=True)
 
 
@@ -53,34 +74,43 @@ def render_progress(period: str) -> None:
 
 def render_dashboard(period: str) -> None:
     data = service.dashboard(period)
-    st.title("Tablero")
-    st.caption(f"Resumen de procesos · periodo {period}")
+    st.markdown('<div class="ccr-dashboard">', unsafe_allow_html=True)
+    st.markdown('<div class="ccr-dashboard-title">Tablero</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="ccr-dashboard-caption">Resumen de procesos · periodo {escape(period)}</div>', unsafe_allow_html=True)
     labels = (("Tareas pendientes", "pending"), ("Tareas vencidas", "overdue"), ("Procesos bloqueados", "blocked"), ("Procesos críticos", "critical"), ("SOX pendientes", "sox"), ("Aprobaciones pendientes", "approvals"))
     cols = st.columns(6)
+    warning_keys = {"overdue": "ccr-kpi-value--danger", "critical": "ccr-kpi-value--warning"}
     for col, (label, key) in zip(cols, labels):
         with col:
-            st.markdown(f'<div class="ccr-kpi"><div class="ccr-kpi-label">{label}</div><div class="ccr-kpi-value">{data["kpis"][key]}</div></div>', unsafe_allow_html=True)
+            value_class = warning_keys.get(key, "")
+            st.markdown(f'<div class="ccr-kpi"><div class="ccr-kpi-label">{label}</div><div class="ccr-kpi-value {value_class}">{data["kpis"][key]}</div></div>', unsafe_allow_html=True)
+    st.markdown('<div style="height:.7rem"></div>', unsafe_allow_html=True)
     left, right = st.columns(2)
     with left:
-        st.subheader("Estado de procesos")
+        process_rows = []
         for summary in data["summaries"]:
-            st.markdown(f'<div class="ccr-row"><b>{summary.proceso.icono} {summary.proceso.nombre}</b><br><span style="color:{summary.proceso.color}">{summary.estado.value}</span> · {summary.completadas}/{summary.total} subtareas</div>', unsafe_allow_html=True)
+            process_rows.append(
+                f'<div class="ccr-process-row"><span class="ccr-status-dot" style="background:{summary.proceso.color}"></span>'
+                f'<span class="ccr-process-name">{escape(summary.proceso.nombre)}</span>'
+                f'<span class="ccr-process-state" style="color:{summary.proceso.color}">{escape(summary.estado.value)} · {summary.completadas}/{summary.total} subtareas</span></div>'
+            )
+        st.markdown(f'<div class="ccr-panel"><div class="ccr-panel-header">Estado de procesos</div>{"".join(process_rows)}</div>', unsafe_allow_html=True)
     with right:
-        st.subheader("Panel de alertas")
+        alert_rows = []
         if not data["alerts"]:
-            st.success("No hay alertas derivadas del estado actual.")
+            alert_rows.append('<div class="ccr-alert-row"><div class="ccr-alert-title">Sin alertas activas</div><div class="ccr-alert-description">No hay alertas derivadas del estado actual.</div></div>')
         for alert in data["alerts"]:
-            st.warning(f"**{alert.titulo}** · {alert.descripcion}")
+            alert_rows.append(f'<div class="ccr-alert-row"><div class="ccr-alert-title">{escape(alert.titulo)}</div><div class="ccr-alert-description">{escape(alert.descripcion)}</div></div>')
+        st.markdown(f'<div class="ccr-panel"><div class="ccr-panel-header">Panel de alertas</div>{"".join(alert_rows)}</div>', unsafe_allow_html=True)
+    st.markdown('<div style="height:.7rem"></div>', unsafe_allow_html=True)
     a, b, c = st.columns(3)
     with a:
-        st.subheader("Pendientes de hoy")
-        st.info("Las tareas no completadas del periodo activo.")
+        st.markdown('<div class="ccr-bottom-panel"><div class="ccr-panel-header">Pendientes de hoy</div><div class="ccr-bottom-row"><span>Revisar tareas del periodo activo</span><span class="ccr-bottom-date">Hoy</span></div></div>', unsafe_allow_html=True)
     with b:
-        st.subheader("Próximos masivos")
-        st.info("Sin scheduler en esta fase.")
+        st.markdown('<div class="ccr-bottom-panel"><div class="ccr-panel-header">Próximos masivos</div><div class="ccr-bottom-row"><span>Sin scheduler en esta fase</span><span class="ccr-bottom-date">—</span></div></div>', unsafe_allow_html=True)
     with c:
-        st.subheader("Próximos vencimientos")
-        st.info("Se muestran al configurar programación.")
+        st.markdown('<div class="ccr-bottom-panel"><div class="ccr-panel-header">Próximos vencimientos</div><div class="ccr-bottom-row"><span>Se muestran al configurar programación</span><span class="ccr-bottom-date">—</span></div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_process(period: str, code: str, readonly: bool = False) -> None:
