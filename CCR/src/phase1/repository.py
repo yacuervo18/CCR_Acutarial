@@ -1,6 +1,7 @@
 """Persistencia SQLite de estado por proceso-periodo."""
 import sqlite3
-from datetime import date, datetime
+from datetime import datetime
+import json
 from pathlib import Path
 from .config import PROCESOS
 
@@ -14,8 +15,21 @@ class Repository:
             CREATE TABLE IF NOT EXISTS phase1_periods (period TEXT PRIMARY KEY, created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS phase1_tasks (period TEXT, process_code TEXT, task_id INTEGER, completed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(period, process_code, task_id));
             CREATE TABLE IF NOT EXISTS phase1_schedule (period TEXT, process_code TEXT PRIMARY KEY, scheduled_at TEXT, recipients TEXT, channels TEXT);
+            CREATE TABLE IF NOT EXISTS phase1_process_schedules (
+                process_code TEXT PRIMARY KEY,
+                start_date TEXT NOT NULL DEFAULT '',
+                scheduled_time TEXT NOT NULL,
+                months TEXT NOT NULL,
+                interval_minutes INTEGER NOT NULL DEFAULT 1440,
+                recipients TEXT NOT NULL,
+                channel TEXT NOT NULL DEFAULT 'Teams',
+                updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS phase1_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, period TEXT, process_code TEXT, payload TEXT, created_at TEXT NOT NULL);
             """)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(phase1_process_schedules)")}
+            if "start_date" not in columns:
+                conn.execute("ALTER TABLE phase1_process_schedules ADD COLUMN start_date TEXT NOT NULL DEFAULT ''")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)
@@ -47,6 +61,39 @@ class Repository:
         with self._connect() as conn:
             conn.execute("INSERT OR REPLACE INTO phase1_schedule VALUES (?, ?, ?, ?, ?)", (period, code, scheduled_at, recipients, channels))
             conn.commit()
+
+    def save_process_schedule(
+        self,
+        code: str,
+        start_date: str,
+        scheduled_time: str,
+        months: list[int],
+        interval_minutes: int,
+        recipients: list[dict[str, str]],
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO phase1_process_schedules
+                (process_code, start_date, scheduled_time, months, interval_minutes, recipients, channel, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'Teams', ?)""",
+                (code, start_date, scheduled_time, json.dumps(months), interval_minutes, json.dumps(recipients, ensure_ascii=False), datetime.now().isoformat()),
+            )
+            conn.commit()
+
+    def process_schedule(self, code: str) -> sqlite3.Row | None:
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM phase1_process_schedules WHERE process_code=?", (code,)).fetchone()
+
+    def reminder_due(self, code: str, period: str, now: datetime, interval_minutes: int) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT created_at FROM phase1_notifications WHERE period=? AND process_code=? AND payload LIKE '%recordatorio_pendiente%' ORDER BY id DESC LIMIT 1",
+                (period, code),
+            ).fetchone()
+            if row is None:
+                return True
+            last_sent = datetime.fromisoformat(row["created_at"])
+            return (now - last_sent).total_seconds() >= interval_minutes * 60
 
     def schedule(self, period: str, code: str) -> sqlite3.Row | None:
         with self._connect() as conn:

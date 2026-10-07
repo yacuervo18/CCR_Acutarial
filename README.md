@@ -31,6 +31,16 @@ contrato versionable para el futuro flujo HTTP está en
 `POWER_AUTOMATE_WEBHOOK_URL` (ver `.env.example`); no se hacen llamadas reales
 en esta fase.
 
+Cada proceso permite configurar una fecha de inicio, hora, todos los meses o
+meses específicos, frecuencia de revisión y destinatarios de Teams. Los
+destinatarios se registran como `Nombre | correo o identificador`, por ejemplo
+`Carlos | carlos@empresa.com` o `Canal Reservas | canal-reservas`. Al abrir la
+aplicación se revisan las programaciones aplicables al mes actual; si quedan
+tareas pendientes se genera una alerta interna y un evento simulado para Teams.
+La frecuencia evita duplicados si la aplicación se abre varias veces dentro
+del intervalo configurado. Al completar todas las tareas, no se generan más
+recordatorios para ese proceso.
+
 ## Pruebas
 
 ```powershell

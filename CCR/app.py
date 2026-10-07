@@ -1,14 +1,16 @@
 import streamlit as st
-from datetime import date, datetime
+from datetime import datetime, time
 from html import escape
+import json
+from pathlib import Path
 
 from src.phase1.config import PROCESOS, proceso_por_codigo
 from src.phase1.domain import EstadoProceso
-from src.phase1.notifications import Notification, NotificationService, validar_destinatarios
+from src.phase1.notifications import NotificationService, parse_destinatarios
 from src.phase1.repository import Repository
 from src.phase1.service import ProcessService
 
-st.set_page_config(page_title="CCR · Centro de Control Actuarial", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Centro de control y gestión Actuarial", layout="wide", initial_sidebar_state="expanded")
 
 
 @st.cache_resource
@@ -72,7 +74,7 @@ def render_progress(period: str) -> None:
     st.markdown(f'<div class="ccr-sticky"><b>Avance alcanzado · {data["avance"]}%</b><div class="ccr-bar">{parts}</div><div class="ccr-muted">{legend}</div></div>', unsafe_allow_html=True)
 
 
-def render_dashboard(period: str) -> None:
+def render_dashboard(period: str, reminders: list) -> None:
     data = service.dashboard(period)
     st.markdown('<div class="ccr-dashboard">', unsafe_allow_html=True)
     st.markdown('<div class="ccr-dashboard-title">Tablero</div>', unsafe_allow_html=True)
@@ -101,6 +103,8 @@ def render_dashboard(period: str) -> None:
             alert_rows.append('<div class="ccr-alert-row"><div class="ccr-alert-title">Sin alertas activas</div><div class="ccr-alert-description">No hay alertas derivadas del estado actual.</div></div>')
         for alert in data["alerts"]:
             alert_rows.append(f'<div class="ccr-alert-row"><div class="ccr-alert-title">{escape(alert.titulo)}</div><div class="ccr-alert-description">{escape(alert.descripcion)}</div></div>')
+        for reminder in reminders:
+            alert_rows.append(f'<div class="ccr-alert-row"><div class="ccr-alert-title">Recordatorio · {escape(reminder.proceso)}</div><div class="ccr-alert-description">{escape(reminder.mensaje)}</div></div>')
         st.markdown(f'<div class="ccr-panel"><div class="ccr-panel-header">Panel de alertas</div>{"".join(alert_rows)}</div>', unsafe_allow_html=True)
     st.markdown('<div style="height:.7rem"></div>', unsafe_allow_html=True)
     a, b, c = st.columns(3)
@@ -134,19 +138,25 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
             repo.set_task(period, code, task.id, value)
             st.rerun()
     st.subheader("Programación y notificaciones")
-    saved = repo.schedule(period, code)
+    saved = repo.process_schedule(code)
+    saved_months = json.loads(saved["months"]) if saved else list(range(1, 13))
+    saved_recipients = json.loads(saved["recipients"]) if saved else []
+    recipient_text = "\n".join(f"{item['label']} | {item['value']}" for item in saved_recipients)
     with st.form(f"schedule-{period}-{code}"):
-        scheduled_at = st.datetime_input("Fecha y hora", value=datetime.fromisoformat(saved["scheduled_at"]) if saved else datetime.now())
-        recipients = st.text_input("Destinatarios (correos separados por coma)", value=saved["recipients"] if saved else "")
-        channels = st.multiselect("Canales", ["Teams", "Correo"], default=saved["channels"].split(",") if saved else ["Teams"])
+        schedule_date = st.date_input("Fecha de inicio", value=datetime.now().date(), disabled=readonly)
+        schedule_time = st.time_input("Hora del recordatorio", value=time.fromisoformat(saved["scheduled_time"]) if saved else time(8, 0), disabled=readonly)
+        month_mode = st.radio("Aplicación", ["Todos los meses", "Seleccionar meses"], index=0 if saved_months == list(range(1, 13)) else 1, horizontal=True, disabled=readonly)
+        month_options = list(range(1, 13))
+        months = st.multiselect("Meses en los que se recordará", month_options, default=saved_months, format_func=lambda month: datetime(2000, month, 1).strftime("%B").capitalize(), disabled=readonly) if month_mode == "Seleccionar meses" else month_options
+        frequency = st.selectbox("Frecuencia de revisión", [("Al abrir la aplicación", 1440), ("Cada 30 minutos", 30), ("Cada hora", 60), ("Cada 2 horas", 120)], format_func=lambda item: item[0], index=next((i for i, item in enumerate([("Al abrir la aplicación", 1440), ("Cada 30 minutos", 30), ("Cada hora", 60), ("Cada 2 horas", 120)]) if saved and item[1] == saved["interval_minutes"]), 0), disabled=readonly)
+        recipients = st.text_area("Destinatarios de Teams (una línea por persona: Nombre | correo o identificador)", value=recipient_text, placeholder="Carlos | carlos@empresa.com", disabled=readonly)
         if st.form_submit_button("Guardar programación", disabled=readonly):
             try:
-                emails = validar_destinatarios(recipients)
-                if not channels:
-                    raise ValueError("Seleccione al menos un canal.")
-                repo.save_schedule(period, code, scheduled_at.isoformat(), ", ".join(emails), ", ".join(channels))
-                NotificationService(repo).schedule(Notification(code, period, "programacion", f"Notificación programada para {process.nombre}", emails, ", ".join(channels), scheduled_at.isoformat()))
-                st.success("Programación guardada y registrada en historial simulado.")
+                if not months:
+                    raise ValueError("Seleccione al menos un mes.")
+                parsed_recipients = parse_destinatarios(recipients)
+                repo.save_process_schedule(code, schedule_date.isoformat(), schedule_time.strftime("%H:%M"), months, frequency[1], parsed_recipients)
+                st.success("Programación de Teams guardada correctamente.")
             except ValueError as error:
                 st.error(str(error))
     history = repo.notification_history(period, code)
@@ -157,13 +167,25 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
 
 
 with st.sidebar:
-    st.title("CCR")
+    logo_path = Path(__file__).resolve().parents[1] / "LogoSura_sinFondo.png"
+    if logo_path.exists():
+        st.image(str(logo_path), width=150)
+    st.title("Centro de control y gestión Actuarial")
     selected_period = st.selectbox("Periodo", periods or [period_default], index=0)
     selected = st.radio("Navegación", ["TABLERO"] + [p.nombre.upper() for p in PROCESOS], index=0)
     st.caption("Los periodos anteriores se consultan en modo lectura recomendado.")
 
+if "daily_reminders" not in st.session_state or st.session_state.get("daily_reminders_period") != selected_period:
+    reminders = service.daily_reminders(selected_period)
+    for reminder in reminders:
+        NotificationService(repo).send_daily_reminder(reminder)
+    st.session_state["daily_reminders"] = reminders
+    st.session_state["daily_reminders_period"] = selected_period
+else:
+    reminders = st.session_state["daily_reminders"]
+
 render_progress(selected_period)
 if selected == "TABLERO":
-    render_dashboard(selected_period)
+    render_dashboard(selected_period, reminders)
 else:
     render_process(selected_period, next(p.codigo for p in PROCESOS if p.nombre.upper() == selected), readonly=selected_period != period_default)

@@ -3,7 +3,9 @@ from datetime import date, timedelta
 import pytest
 
 from src.phase1.domain import EstadoProceso, Tarea, derivar_estado, porcentaje_global, ResumenProceso
-from src.phase1.notifications import validar_destinatarios
+from datetime import datetime
+
+from src.phase1.notifications import validar_destinatarios, parse_destinatarios
 from src.phase1.repository import Repository
 from src.phase1.service import ProcessService
 
@@ -40,3 +42,18 @@ def test_email_validation():
     assert validar_destinatarios("uno@empresa.com, dos@empresa.co")[1] == "dos@empresa.co"
     with pytest.raises(ValueError):
         validar_destinatarios("no-es-correo")
+
+
+def test_process_schedule_only_reminds_when_tasks_are_pending(tmp_path):
+    repository = Repository(tmp_path / "ccr.db")
+    service = ProcessService(repository)
+    repository.save_process_schedule("f394", "2026-10-01", "08:00", [10], 1440, [{"label": "Carlos", "value": "carlos@empresa.com"}])
+    reminders = service.daily_reminders("2026-10", datetime(2026, 10, 7, 9, 0))
+    assert any(reminder.proceso == "f394" for reminder in reminders)
+    for task_id in range(1, 6):
+        repository.set_task("2026-10", "f394", task_id, True)
+    assert not any(reminder.proceso == "f394" for reminder in service.daily_reminders("2026-10", datetime(2026, 10, 7, 9, 0)))
+
+
+def test_recipient_lines_support_name_and_identifier():
+    assert parse_destinatarios("Carlos | carlos@empresa.com\nCanal Reservas | canal-reservas")[1]["value"] == "canal-reservas"

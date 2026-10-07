@@ -4,6 +4,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from .repository import Repository
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -45,6 +46,24 @@ def validar_destinatarios(value: str) -> tuple[str, ...]:
     return emails
 
 
+def parse_destinatarios(value: str) -> list[dict[str, str]]:
+    """Convierte líneas ``nombre | correo`` en destinos persistibles."""
+    recipients = []
+    for raw_line in value.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = [part.strip() for part in line.split("|", 1)]
+        label = parts[0]
+        address = parts[1] if len(parts) == 2 else label
+        if "@" in address and not EMAIL_RE.match(address):
+            raise ValueError(f"Correo inválido: {address}")
+        recipients.append({"label": label, "value": address})
+    if not recipients:
+        raise ValueError("Agregue al menos un destinatario.")
+    return recipients
+
+
 class NotificationService:
     def __init__(self, repository: Repository) -> None:
         self.repository = repository
@@ -56,4 +75,9 @@ class NotificationService:
             if channel not in self.channels:
                 raise ValueError(f"Canal no soportado: {channel}")
             self.channels[channel].send(notification)
+        self.repository.add_notification(notification.periodo, notification.proceso, json.dumps(notification.__dict__, ensure_ascii=False))
+
+    def send_daily_reminder(self, notification: Notification) -> None:
+        """Registra el recordatorio y lo deja listo para conectar con Teams."""
+        self.channels["Teams"].send(notification)
         self.repository.add_notification(notification.periodo, notification.proceso, json.dumps(notification.__dict__, ensure_ascii=False))
