@@ -25,6 +25,18 @@ class Repository:
                 channel TEXT NOT NULL DEFAULT 'Teams',
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS phase1_process_schedule_overrides (
+                period TEXT NOT NULL,
+                process_code TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                scheduled_time TEXT NOT NULL,
+                months TEXT NOT NULL,
+                interval_minutes INTEGER NOT NULL DEFAULT 1440,
+                recipients TEXT NOT NULL,
+                channel TEXT NOT NULL DEFAULT 'Teams',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (period, process_code)
+            );
             CREATE TABLE IF NOT EXISTS phase1_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, period TEXT, process_code TEXT, payload TEXT, created_at TEXT NOT NULL);
             """)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(phase1_process_schedules)")}
@@ -57,6 +69,13 @@ class Repository:
             conn.execute("UPDATE phase1_tasks SET completed=? WHERE period=? AND process_code=? AND task_id=?", (int(value), period, code, task_id))
             conn.commit()
 
+    def reset_tasks(self, period: str) -> None:
+        """Reinicia únicamente las actividades del periodo indicado."""
+        self.ensure_period(period)
+        with self._connect() as conn:
+            conn.execute("UPDATE phase1_tasks SET completed=0 WHERE period=?", (period,))
+            conn.commit()
+
     def save_schedule(self, period: str, code: str, scheduled_at: str, recipients: str, channels: str) -> None:
         with self._connect() as conn:
             conn.execute("INSERT OR REPLACE INTO phase1_schedule VALUES (?, ?, ?, ?, ?)", (period, code, scheduled_at, recipients, channels))
@@ -70,18 +89,28 @@ class Repository:
         months: list[int],
         interval_minutes: int,
         recipients: list[dict[str, str]],
+        period: str | None = None,
     ) -> None:
+        table = "phase1_process_schedule_overrides" if period else "phase1_process_schedules"
+        params = (period, code, start_date, scheduled_time, json.dumps(months), interval_minutes, json.dumps(recipients, ensure_ascii=False), datetime.now().isoformat()) if period else (code, start_date, scheduled_time, json.dumps(months), interval_minutes, json.dumps(recipients, ensure_ascii=False), datetime.now().isoformat())
         with self._connect() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO phase1_process_schedules
-                (process_code, start_date, scheduled_time, months, interval_minutes, recipients, channel, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'Teams', ?)""",
-                (code, start_date, scheduled_time, json.dumps(months), interval_minutes, json.dumps(recipients, ensure_ascii=False), datetime.now().isoformat()),
+                f"""INSERT OR REPLACE INTO {table}
+                ({'period, ' if period else ''}process_code, start_date, scheduled_time, months, interval_minutes, recipients, channel, updated_at)
+                VALUES ({'?, ' if period else ''}?, ?, ?, ?, ?, ?, 'Teams', ?)""",
+                params,
             )
             conn.commit()
 
-    def process_schedule(self, code: str) -> sqlite3.Row | None:
+    def process_schedule(self, code: str, period: str | None = None) -> sqlite3.Row | None:
         with self._connect() as conn:
+            if period:
+                override = conn.execute(
+                    "SELECT * FROM phase1_process_schedule_overrides WHERE process_code=? AND period=?",
+                    (code, period),
+                ).fetchone()
+                if override:
+                    return override
             return conn.execute("SELECT * FROM phase1_process_schedules WHERE process_code=?", (code,)).fetchone()
 
     def reminder_due(self, code: str, period: str, now: datetime, interval_minutes: int) -> bool:

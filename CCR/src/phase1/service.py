@@ -43,7 +43,7 @@ class ProcessService:
         now = now or datetime.now()
         reminders = []
         for summary in self.summaries(period):
-            schedule = self.repository.process_schedule(summary.proceso.codigo)
+            schedule = self.repository.process_schedule(summary.proceso.codigo, period)
             if not schedule or summary.estado == EstadoProceso.COMPLETADO:
                 continue
             if schedule["start_date"] and now.date().isoformat() < schedule["start_date"]:

@@ -31,8 +31,12 @@ contrato versionable para el futuro flujo HTTP está en
 `POWER_AUTOMATE_WEBHOOK_URL` (ver `.env.example`); no se hacen llamadas reales
 en esta fase.
 
-Cada proceso permite configurar una fecha de inicio, hora, todos los meses o
-meses específicos, frecuencia de revisión y destinatarios de Teams. Los
+Cada proceso permite configurar una programación general, que se conserva al
+crear nuevos periodos mensuales, con fecha de inicio, hora, todos los meses o
+meses específicos, frecuencia de revisión y destinatarios de Teams. También
+se puede guardar una excepción para el periodo seleccionado sin modificar la
+programación general. El reinicio mensual solo crea las tareas del nuevo
+periodo; nunca elimina ni reinicia las fechas programadas. Los
 destinatarios se registran como `Nombre | correo o identificador`, por ejemplo
 `Carlos | carlos@empresa.com` o `Canal Reservas | canal-reservas`. Al abrir la
 aplicación se revisan las programaciones aplicables al mes actual; si quedan

@@ -26,6 +26,17 @@ periods = repo.periods()
 
 st.markdown("""<style>
 .block-container {padding: .65rem 1.5rem 1rem; max-width: 1500px;}
+.stApp [data-testid="stSidebar"] {background: #07529a;}
+.stApp [data-testid="stSidebar"] > div:first-child {background: #07529a;}
+.stApp [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+.stApp [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {color: #ffffff;}
+.stApp [data-testid="stSidebar"] h1 {color: #ffffff; font-size: 1.05rem; line-height: 1.2;}
+.stApp [data-testid="stSidebar"] [role="radiogroup"] {gap: .4rem;}
+.stApp [data-testid="stSidebar"] [data-testid="stRadio"] label {display: flex; align-items: center; border: 1px solid rgba(255,255,255,.45); border-radius: 5px; padding: .42rem .65rem; min-height: 0; background: rgba(255,255,255,.1); color: #ffffff;}
+.stApp [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {background: #ffffff; border-color: #ffffff; color: #07529a; font-weight: 600;}
+.stApp [data-testid="stSidebar"] [data-testid="stRadio"] label p {font-size: .78rem; margin: 0;}
+.stApp [data-testid="stSidebar"] [data-testid="stRadio"] label > div:first-child {display: none;}
+.stApp [data-testid="stSidebar"] [data-testid="stButton"] button {font-size: .72rem; padding: .25rem .55rem; min-height: 0; border-color: rgba(255,255,255,.65); color: #07529a; background: #ffffff;}
 .ccr-dashboard-title {font-size: 1.45rem; font-weight: 650; line-height: 1.2; margin: .35rem 0 .1rem;}
 .ccr-dashboard-caption {font-size: .75rem; color: #667085; margin-bottom: .55rem;}
 .ccr-dashboard [data-testid="stHorizontalBlock"] {gap: .7rem;}
@@ -120,7 +131,7 @@ def render_dashboard(period: str, reminders: list) -> None:
 def render_process(period: str, code: str, readonly: bool = False) -> None:
     process = proceso_por_codigo(code)
     summary = next(s for s in service.dashboard(period)["summaries"] if s.proceso.codigo == code)
-    st.title(f"{process.icono} {process.nombre}")
+    st.title(process.nombre)
     st.caption(f"Periodo {period} · {summary.estado.value} · {summary.completadas}/{summary.total} tareas")
     if readonly:
         st.warning("Periodo histórico: consulta de solo lectura.")
@@ -138,27 +149,32 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
             repo.set_task(period, code, task.id, value)
             st.rerun()
     st.subheader("Programación y notificaciones")
-    saved = repo.process_schedule(code)
+    saved = repo.process_schedule(code, period)
     saved_months = json.loads(saved["months"]) if saved else list(range(1, 13))
     saved_recipients = json.loads(saved["recipients"]) if saved else []
     recipient_text = "\n".join(f"{item['label']} | {item['value']}" for item in saved_recipients)
-    with st.form(f"schedule-{period}-{code}"):
-        schedule_date = st.date_input("Fecha de inicio", value=datetime.now().date(), disabled=readonly)
-        schedule_time = st.time_input("Hora del recordatorio", value=time.fromisoformat(saved["scheduled_time"]) if saved else time(8, 0), disabled=readonly)
-        month_mode = st.radio("Aplicación", ["Todos los meses", "Seleccionar meses"], index=0 if saved_months == list(range(1, 13)) else 1, horizontal=True, disabled=readonly)
-        month_options = list(range(1, 13))
-        months = st.multiselect("Meses en los que se recordará", month_options, default=saved_months, format_func=lambda month: datetime(2000, month, 1).strftime("%B").capitalize(), disabled=readonly) if month_mode == "Seleccionar meses" else month_options
-        frequency = st.selectbox("Frecuencia de revisión", [("Al abrir la aplicación", 1440), ("Cada 30 minutos", 30), ("Cada hora", 60), ("Cada 2 horas", 120)], format_func=lambda item: item[0], index=next((i for i, item in enumerate([("Al abrir la aplicación", 1440), ("Cada 30 minutos", 30), ("Cada hora", 60), ("Cada 2 horas", 120)]) if saved and item[1] == saved["interval_minutes"]), 0), disabled=readonly)
-        recipients = st.text_area("Destinatarios de Teams (una línea por persona: Nombre | correo o identificador)", value=recipient_text, placeholder="Carlos | carlos@empresa.com", disabled=readonly)
-        if st.form_submit_button("Guardar programación", disabled=readonly):
-            try:
-                if not months:
-                    raise ValueError("Seleccione al menos un mes.")
-                parsed_recipients = parse_destinatarios(recipients)
-                repo.save_process_schedule(code, schedule_date.isoformat(), schedule_time.strftime("%H:%M"), months, frequency[1], parsed_recipients)
-                st.success("Programación de Teams guardada correctamente.")
-            except ValueError as error:
-                st.error(str(error))
+    with st.expander("Configurar programación", expanded=not bool(saved)):
+        with st.form(f"schedule-{period}-{code}"):
+            scope = st.radio("Aplicar configuración", ["General: todos los meses", f"Excepción: {period}"], horizontal=True, disabled=readonly)
+            schedule_date = st.date_input("Fecha de inicio", value=datetime.fromisoformat(saved["start_date"]).date() if saved and saved["start_date"] else datetime.now().date(), disabled=readonly)
+            schedule_time = st.time_input("Hora", value=time.fromisoformat(saved["scheduled_time"]) if saved else time(8, 0), disabled=readonly)
+            month_mode = st.radio("Meses", ["Todos", "Seleccionar"], index=0 if saved_months == list(range(1, 13)) else 1, horizontal=True, disabled=readonly)
+            month_options = list(range(1, 13))
+            months = month_options
+            if month_mode == "Seleccionar":
+                months = st.multiselect("Elegir meses", month_options, default=saved_months, format_func=lambda month: datetime(2000, month, 1).strftime("%b").capitalize(), disabled=readonly)
+            frequency_options = [("Al abrir la aplicación", 1440), ("Cada 30 minutos", 30), ("Cada hora", 60), ("Cada 2 horas", 120)]
+            frequency = st.selectbox("Frecuencia", frequency_options, format_func=lambda item: item[0], index=next((i for i, item in enumerate(frequency_options) if saved and item[1] == saved["interval_minutes"]), 0), disabled=readonly)
+            recipients = st.text_area("Destinatarios Teams (Nombre | correo o identificador)", value=recipient_text, placeholder="Carlos | carlos@empresa.com", height=72, disabled=readonly)
+            if st.form_submit_button("Guardar programación", disabled=readonly):
+                try:
+                    if not months:
+                        raise ValueError("Seleccione al menos un mes.")
+                    parsed_recipients = parse_destinatarios(recipients)
+                    repo.save_process_schedule(code, schedule_date.isoformat(), schedule_time.strftime("%H:%M"), months, frequency[1], parsed_recipients, period if scope.startswith("Excepción") else None)
+                    st.success("Programación guardada correctamente.")
+                except ValueError as error:
+                    st.error(str(error))
     history = repo.notification_history(period, code)
     if history:
         with st.expander("Historial simulado"):
@@ -167,13 +183,27 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
 
 
 with st.sidebar:
-    logo_path = Path(__file__).resolve().parents[1] / "LogoSura_sinFondo.png"
+    logo_path = Path(__file__).resolve().parents[1] / "LogoSura_blanco_transparente.png"
     if logo_path.exists():
         st.image(str(logo_path), width=150)
     st.title("Centro de control y gestión Actuarial")
     selected_period = st.selectbox("Periodo", periods or [period_default], index=0)
     selected = st.radio("Navegación", ["TABLERO"] + [p.nombre.upper() for p in PROCESOS], index=0)
     st.caption("Los periodos anteriores se consultan en modo lectura recomendado.")
+    st.divider()
+    if st.button("Reiniciar tareas del periodo", use_container_width=True):
+        st.session_state["confirm_reset_period"] = selected_period
+    if st.session_state.get("confirm_reset_period") == selected_period:
+        st.caption(f"Se reiniciarán las tareas de {selected_period}. La programación no cambia.")
+        confirm_reset = st.checkbox("Confirmar reinicio", key=f"confirm-reset-{selected_period}")
+        if confirm_reset and st.button("Confirmar", key=f"confirm-reset-button-{selected_period}", use_container_width=True):
+            repo.reset_tasks(selected_period)
+            for process in PROCESOS:
+                for task in process.tareas:
+                    st.session_state.pop(f"{selected_period}:{process.codigo}:{task.id}", None)
+            st.session_state.pop("confirm_reset_period", None)
+            st.session_state.pop(f"confirm-reset-{selected_period}", None)
+            st.rerun()
 
 if "daily_reminders" not in st.session_state or st.session_state.get("daily_reminders_period") != selected_period:
     reminders = service.daily_reminders(selected_period)

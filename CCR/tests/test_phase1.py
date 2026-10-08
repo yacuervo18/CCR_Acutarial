@@ -57,3 +57,20 @@ def test_process_schedule_only_reminds_when_tasks_are_pending(tmp_path):
 
 def test_recipient_lines_support_name_and_identifier():
     assert parse_destinatarios("Carlos | carlos@empresa.com\nCanal Reservas | canal-reservas")[1]["value"] == "canal-reservas"
+
+
+def test_schedule_is_general_and_can_have_period_override(tmp_path):
+    repository = Repository(tmp_path / "ccr.db")
+    repository.save_process_schedule("f394", "2026-01-01", "08:00", list(range(1, 13)), 1440, [])
+    repository.save_process_schedule("f394", "2026-10-15", "09:00", [10], 60, [], "2026-10")
+    assert repository.process_schedule("f394", "2026-11")["scheduled_time"] == "08:00"
+    assert repository.process_schedule("f394", "2026-10")["scheduled_time"] == "09:00"
+
+
+def test_reset_only_clears_tasks_and_keeps_schedule(tmp_path):
+    repository = Repository(tmp_path / "ccr.db")
+    repository.set_task("2026-10", "f394", 1, True)
+    repository.save_process_schedule("f394", "2026-01-01", "08:00", list(range(1, 13)), 1440, [])
+    repository.reset_tasks("2026-10")
+    assert repository.completed("2026-10", "f394") == set()
+    assert repository.process_schedule("f394")["scheduled_time"] == "08:00"
