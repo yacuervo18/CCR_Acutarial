@@ -26,17 +26,37 @@ periods = repo.periods()
 
 st.markdown("""<style>
 .block-container {padding: .65rem 1.5rem 1rem; max-width: 1500px;}
-.stApp [data-testid="stSidebar"] {background: #07529a;}
-.stApp [data-testid="stSidebar"] > div:first-child {background: #07529a;}
+:root {--nav-bg: #0B4F9E; --nav-hover: #1E78D6; --nav-active: #2F8BE6; --nav-text: #FFFFFF; --nav-divider: rgba(255,255,255,.10);}
+.stApp [data-testid="stSidebar"] {background: var(--nav-bg);}
+.stApp [data-testid="stSidebar"] > div:first-child {background: var(--nav-bg);}
 .stApp [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
 .stApp [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {color: #ffffff;}
 .stApp [data-testid="stSidebar"] h1 {color: #ffffff; font-size: 1.05rem; line-height: 1.2;}
-.stApp [data-testid="stSidebar"] [role="radiogroup"] {gap: .4rem;}
-.stApp [data-testid="stSidebar"] [data-testid="stRadio"] label {display: flex; align-items: center; border: 1px solid rgba(255,255,255,.45); border-radius: 5px; padding: .42rem .65rem; min-height: 0; background: rgba(255,255,255,.1); color: #ffffff;}
-.stApp [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {background: #ffffff; border-color: #ffffff; color: #07529a; font-weight: 600;}
-.stApp [data-testid="stSidebar"] [data-testid="stRadio"] label p {font-size: .78rem; margin: 0;}
-.stApp [data-testid="stSidebar"] [data-testid="stRadio"] label > div:first-child {display: none;}
+.st-key-ccr-nav-container {box-sizing: border-box; width: calc(100% + 2rem) !important; margin: .35rem -1rem 0 !important; padding: 0 !important; overflow: visible;}
+.st-key-ccr-nav-container > div {width: 100% !important; max-width: none !important;}
+.st-key-ccr-nav-container [data-testid="stButton"] {box-sizing: border-box; width: 100% !important; max-width: none !important; margin: 0; padding: 0; border-top: .5px solid var(--nav-divider);}
+.st-key-ccr-nav-container [data-testid="stButton"]:last-child {border-bottom: .5px solid var(--nav-divider);}
+.st-key-ccr-nav-container [data-testid^="stBaseButton-"] {box-sizing: border-box; width: 100%; height: 46px; padding: 0 1rem; border: 0; border-radius: 0; color: var(--nav-text); background: var(--nav-bg); text-transform: uppercase; font-size: 13px; font-weight: 500; letter-spacing: .02em; line-height: 1.1; transition: background-color 150ms ease; text-align: left;}
+.st-key-ccr-nav-container [data-testid="stButton"] > div {width: 100%;}
+.st-key-ccr-nav-container [data-testid="stButton"] button > div {display: flex; width: 100%; justify-content: flex-start; align-items: center;}
+.st-key-ccr-nav-container [data-testid="stButton"] button p {width: 100%; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.st-key-ccr-nav-container [data-testid="stBaseButton-secondary"]:hover {background: var(--nav-hover); color: var(--nav-text);}
+.st-key-ccr-nav-container [data-testid="stBaseButton-primary"] {background: var(--nav-active); border-left: 4px solid var(--nav-text); padding-left: calc(1rem - 4px);}
+.st-key-ccr-nav-container [data-testid="stBaseButton-primary"]:hover {background: var(--nav-active);}
+.st-key-ccr-nav-container [data-testid^="stBaseButton-"]:focus-visible {outline: 2px solid var(--nav-text); outline-offset: -3px;}
 .stApp [data-testid="stSidebar"] [data-testid="stButton"] button {font-size: .72rem; padding: .25rem .55rem; min-height: 0; border-color: rgba(255,255,255,.65); color: #07529a; background: #ffffff;}
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stButton"] button,
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stButton"] button p {box-sizing: border-box; width: 100%; min-height: 46px; margin: 0; padding: 0 1rem; border: 0; border-radius: 0; color: var(--nav-text) !important; background: var(--nav-bg) !important; font-size: 13px; font-weight: 500; letter-spacing: .02em; line-height: 46px; text-align: left; text-transform: uppercase;}
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stButton"] button > div {padding: 0; justify-content: flex-start;}
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stButton"] button p {padding: 0; text-align: left;}
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stButton"] button:hover,
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stButton"] button:hover p {color: var(--nav-text) !important; background: var(--nav-hover) !important;}
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stBaseButton-primary"] button,
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stBaseButton-primary"] button p {background: var(--nav-active) !important; border-left: 4px solid var(--nav-text); padding-left: calc(1rem - 4px);}
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stBaseButton-primary"] button:hover,
+.stApp [data-testid="stSidebar"] .st-key-ccr-nav-container [data-testid="stBaseButton-primary"] button:hover p {background: var(--nav-active) !important;}
+.st-key-ccr-reset-container [data-testid="stButton"] button,
+.st-key-ccr-reset-container [data-testid="stButton"] button p {color: #07529a !important; background: #ffffff !important;}
 .ccr-dashboard-title {font-size: 1.45rem; font-weight: 650; line-height: 1.2; margin: .35rem 0 .1rem;}
 .ccr-dashboard-caption {font-size: .75rem; color: #667085; margin-bottom: .55rem;}
 .ccr-dashboard [data-testid="stHorizontalBlock"] {gap: .7rem;}
@@ -66,6 +86,9 @@ st.markdown("""<style>
 .ccr-bottom-row {display: flex; justify-content: space-between; gap: .5rem; padding: .52rem 0; border-top: 1px solid #dededc; font-size: .8rem;}
 .ccr-bottom-row:first-child {margin-top: .45rem;}
 .ccr-bottom-date {color: #686868; white-space: nowrap;}
+.ccr-process-extension {border: 1px solid #dededc; border-radius: 12px; padding: .85rem; background: #f8fafc; min-height: 146px; box-sizing: border-box;}
+.ccr-process-extension-title {font-size: .95rem; font-weight: 650; color: #303030; margin-bottom: .35rem;}
+.ccr-process-extension-copy {font-size: .78rem; color: #667085; line-height: 1.4; margin-bottom: .75rem;}
 </style>""", unsafe_allow_html=True)
 
 
@@ -128,6 +151,34 @@ def render_dashboard(period: str, reminders: list) -> None:
     st.markdown('</div>', unsafe_allow_html=True)
 
 
+MOTOR_F394_URL = "http://127.0.0.1:8502"
+
+
+def render_process_extension(code: str) -> bool:
+    if code != "f394":
+        return False
+    st.markdown(
+        '<div class="ccr-process-extension">'
+        '<div class="ccr-process-extension-title">Motor F394</div>'
+        '<div class="ccr-process-extension-copy">'
+        "Accede al Motor F394 para realizar descargas, validaciones y correcciones. "
+        "Las tareas de CCR se marcan manualmente al finalizar."
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+    st.link_button("Abrir Motor F394", MOTOR_F394_URL, use_container_width=True)
+    return True
+
+
+def render_process_tasks(process, period: str, code: str, readonly: bool) -> None:
+    for task in process.tareas:
+        current = task.completada
+        value = st.checkbox(f"{task.nombre}{' · SOX' if task.sox else ''}{' · requiere aprobación' if task.requiere_aprobacion else ''}", value=current, key=f"{period}:{code}:{task.id}", disabled=readonly)
+        if value != current:
+            repo.set_task(period, code, task.id, value)
+            st.rerun()
+
+
 def render_process(period: str, code: str, readonly: bool = False) -> None:
     process = proceso_por_codigo(code)
     summary = next(s for s in service.dashboard(period)["summaries"] if s.proceso.codigo == code)
@@ -141,13 +192,17 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
     with st.expander("Cómo se hace", expanded=True):
         for index, step in enumerate(process.guia, 1):
             st.write(f"{index}. {step}")
-    st.subheader("Tareas")
-    for task in process.tareas:
-        current = task.completada
-        value = st.checkbox(f"{task.nombre}{' · SOX' if task.sox else ''}{' · requiere aprobación' if task.requiere_aprobacion else ''}", value=current, key=f"{period}:{code}:{task.id}", disabled=readonly)
-        if value != current:
-            repo.set_task(period, code, task.id, value)
-            st.rerun()
+    if code == "f394":
+        tasks_column, extension_column = st.columns([1, 1], gap="large")
+        with tasks_column:
+            st.subheader("Tareas")
+            render_process_tasks(process, period, code, readonly)
+        with extension_column:
+            st.subheader("Espacio del proceso")
+            render_process_extension(code)
+    else:
+        st.subheader("Tareas")
+        render_process_tasks(process, period, code, readonly)
     st.subheader("Programación y notificaciones")
     saved = repo.process_schedule(code, period)
     saved_months = json.loads(saved["months"]) if saved else list(range(1, 13))
@@ -182,28 +237,63 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
                 st.write(f"{event['created_at']} · {event['payload']}")
 
 
+nav_items = [
+    ("TABLERO", "▦", "TABLERO"),
+    ("RENTABILIDADES", "⌁", "RENTABILIDADES"),
+    ("ÍNDICES Y MONEDAS", "$", "ÍNDICES Y MONEDAS"),
+    ("F394", "▤", "F394"),
+    ("RESERVA DE SALARIO MÍNIMO", "♢", "RESERVA DE SALARIO MÍNIMO"),
+    ("RESERVA SINIESTROS AVISADOS (RBNS)", "▣", "RSA"),
+    ("RM LEY 100", "▤", "RM LEY 100"),
+    ("RM CONMUTACIÓN", "↔", "RM CONMUTACIÓN"),
+    ("RM ARL", "♡", "RM ARL"),
+]
+valid_navigation = {item[0] for item in nav_items}
+
+
+def select_navigation(key: str) -> None:
+    st.session_state["selected_navigation"] = key
+
+
+if "selected_navigation" not in st.session_state:
+    legacy_selected = st.query_params.get("nav", "TABLERO")
+    st.session_state["selected_navigation"] = legacy_selected if legacy_selected in valid_navigation else "TABLERO"
+    if "nav" in st.query_params:
+        del st.query_params["nav"]
+selected = st.session_state["selected_navigation"]
+
 with st.sidebar:
     logo_path = Path(__file__).resolve().parents[1] / "LogoSura_blanco_transparente.png"
     if logo_path.exists():
         st.image(str(logo_path), width=150)
     st.title("Centro de control y gestión Actuarial")
     selected_period = st.selectbox("Periodo", periods or [period_default], index=0)
-    selected = st.radio("Navegación", ["TABLERO"] + [p.nombre.upper() for p in PROCESOS], index=0)
+    with st.container(key="ccr-nav-container"):
+        for key, icon, label in nav_items:
+            st.button(
+                f"{icon}  {label}",
+                key=f"nav-{key}",
+                type="primary" if key == selected else "secondary",
+                use_container_width=True,
+                on_click=select_navigation,
+                args=(key,),
+            )
     st.caption("Los periodos anteriores se consultan en modo lectura recomendado.")
     st.divider()
-    if st.button("Reiniciar tareas del periodo", use_container_width=True):
-        st.session_state["confirm_reset_period"] = selected_period
-    if st.session_state.get("confirm_reset_period") == selected_period:
-        st.caption(f"Se reiniciarán las tareas de {selected_period}. La programación no cambia.")
-        confirm_reset = st.checkbox("Confirmar reinicio", key=f"confirm-reset-{selected_period}")
-        if confirm_reset and st.button("Confirmar", key=f"confirm-reset-button-{selected_period}", use_container_width=True):
-            repo.reset_tasks(selected_period)
-            for process in PROCESOS:
-                for task in process.tareas:
-                    st.session_state.pop(f"{selected_period}:{process.codigo}:{task.id}", None)
-            st.session_state.pop("confirm_reset_period", None)
-            st.session_state.pop(f"confirm-reset-{selected_period}", None)
-            st.rerun()
+    with st.container(key="ccr-reset-container"):
+        if st.button("Reiniciar tareas del periodo", use_container_width=True):
+            st.session_state["confirm_reset_period"] = selected_period
+        if st.session_state.get("confirm_reset_period") == selected_period:
+            st.caption(f"Se reiniciarán las tareas de {selected_period}. La programación no cambia.")
+            confirm_reset = st.checkbox("Confirmar reinicio", key=f"confirm-reset-{selected_period}")
+            if confirm_reset and st.button("Confirmar", key=f"confirm-reset-button-{selected_period}", use_container_width=True):
+                repo.reset_tasks(selected_period)
+                for process in PROCESOS:
+                    for task in process.tareas:
+                        st.session_state.pop(f"{selected_period}:{process.codigo}:{task.id}", None)
+                st.session_state.pop("confirm_reset_period", None)
+                st.session_state.pop(f"confirm-reset-{selected_period}", None)
+                st.rerun()
 
 if "daily_reminders" not in st.session_state or st.session_state.get("daily_reminders_period") != selected_period:
     reminders = service.daily_reminders(selected_period)

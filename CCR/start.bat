@@ -41,8 +41,8 @@ echo.
 REM Activar entorno virtual e instalar dependencias
 echo Instalando/actualizando dependencias...
 call .venv\Scripts\activate.bat
-pip install --upgrade pip >nul 2>&1
-pip install -r requirements.txt
+.venv\Scripts\python.exe -m pip install --upgrade pip >nul 2>&1
+.venv\Scripts\python.exe -m pip install -r requirements.txt
 if %errorlevel% neq 0 (
     echo ERROR: Fallo al instalar dependencias.
     pause
@@ -61,4 +61,6 @@ echo.
 
 echo Iniciando CCR...
 echo ============================================================
-streamlit run app.py
+start "CCR Streamlit" /min .venv\Scripts\python.exe -m streamlit run app.py --server.headless true
+timeout /t 3 /nobreak >nul
+start "" http://localhost:8501
