@@ -2,7 +2,7 @@
 from .config import PROCESOS, con_tareas
 from datetime import datetime
 import json
-from .domain import Alerta, EstadoProceso, ResumenProceso, TipoAlerta, derivar_estado, porcentaje_global
+from .domain import Alerta, EstadoProceso, Proceso, ResumenProceso, Tarea, TipoAlerta, derivar_estado, porcentaje_global
 from .notifications import Notification
 from .repository import Repository
 
@@ -15,7 +15,15 @@ class ProcessService:
         self.repository.ensure_period(period)
         summaries = []
         for definition in PROCESOS:
-            process = con_tareas(definition, self.repository.completed(period, definition.codigo))
+            task_rows = self.repository.process_tasks(definition.codigo)
+            tasks = tuple(
+                Tarea(row["task_id"], row["name"], sox=bool(row["sox"]), requiere_aprobacion=bool(row["requires_approval"]))
+                for row in task_rows
+            )
+            process = con_tareas(Proceso(
+                definition.codigo, definition.nombre, definition.icono, definition.color,
+                definition.descripcion, definition.guia, tasks, definition.fecha_limite, definition.bloqueado,
+            ), self.repository.completed(period, definition.codigo))
             summaries.append(ResumenProceso(
                 process,
                 derivar_estado(process.tareas, process.fecha_limite, bloqueado=process.bloqueado),

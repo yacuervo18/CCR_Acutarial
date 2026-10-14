@@ -14,6 +14,17 @@ class Repository:
             conn.executescript("""
             CREATE TABLE IF NOT EXISTS phase1_periods (period TEXT PRIMARY KEY, created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS phase1_tasks (period TEXT, process_code TEXT, task_id INTEGER, completed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(period, process_code, task_id));
+            CREATE TABLE IF NOT EXISTS phase1_process_tasks (
+                process_code TEXT NOT NULL,
+                task_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                sox INTEGER NOT NULL DEFAULT 0,
+                requires_approval INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1,
+                task_order INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (process_code, task_id)
+            );
             CREATE TABLE IF NOT EXISTS phase1_schedule (period TEXT, process_code TEXT PRIMARY KEY, scheduled_at TEXT, recipients TEXT, channels TEXT);
             CREATE TABLE IF NOT EXISTS phase1_process_schedules (
                 process_code TEXT PRIMARY KEY,
@@ -38,10 +49,28 @@ class Repository:
                 PRIMARY KEY (period, process_code)
             );
             CREATE TABLE IF NOT EXISTS phase1_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, period TEXT, process_code TEXT, payload TEXT, created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS phase1_process_content (
+                process_code TEXT PRIMARY KEY,
+                what_to_do TEXT NOT NULL,
+                manual_url TEXT NOT NULL DEFAULT '',
+                important_note TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            );
             """)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(phase1_process_schedules)")}
             if "start_date" not in columns:
                 conn.execute("ALTER TABLE phase1_process_schedules ADD COLUMN start_date TEXT NOT NULL DEFAULT ''")
+            content_columns = {row["name"] for row in conn.execute("PRAGMA table_info(phase1_process_content)")}
+            if "important_note" not in content_columns:
+                conn.execute("ALTER TABLE phase1_process_content ADD COLUMN important_note TEXT NOT NULL DEFAULT ''")
+            for process in PROCESOS:
+                for order, task in enumerate(process.tareas, 1):
+                    conn.execute(
+                        """INSERT OR IGNORE INTO phase1_process_tasks
+                        (process_code, task_id, name, sox, requires_approval, task_order, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (process.codigo, task.id, task.nombre, int(task.sox), int(task.requiere_aprobacion), order, datetime.now().isoformat()),
+                    )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)
@@ -51,9 +80,66 @@ class Repository:
     def ensure_period(self, period: str) -> None:
         with self._connect() as conn:
             conn.execute("INSERT OR IGNORE INTO phase1_periods VALUES (?, ?)", (period, datetime.now().isoformat()))
-            for process in PROCESOS:
-                for task in process.tareas:
-                    conn.execute("INSERT OR IGNORE INTO phase1_tasks(period, process_code, task_id) VALUES (?, ?, ?)", (period, process.codigo, task.id))
+            task_rows = conn.execute(
+                "SELECT process_code, task_id FROM phase1_process_tasks WHERE active=1"
+            ).fetchall()
+            for task in task_rows:
+                conn.execute("INSERT OR IGNORE INTO phase1_tasks(period, process_code, task_id) VALUES (?, ?, ?)", (period, task["process_code"], task["task_id"]))
+
+    def process_tasks(self, code: str, include_inactive: bool = False) -> list[sqlite3.Row]:
+        query = "SELECT * FROM phase1_process_tasks WHERE process_code=?"
+        if not include_inactive:
+            query += " AND active=1"
+        query += " ORDER BY task_order, task_id"
+        with self._connect() as conn:
+            return conn.execute(query, (code,)).fetchall()
+
+    def add_process_task(self, code: str, name: str, sox: bool = False, requires_approval: bool = False) -> int:
+        cleaned_name = name.strip()
+        if not cleaned_name:
+            raise ValueError("El nombre de la tarea no puede estar vacío.")
+        with self._connect() as conn:
+            next_id = conn.execute(
+                "SELECT COALESCE(MAX(task_id), 0) + 1 FROM phase1_process_tasks WHERE process_code=?",
+                (code,),
+            ).fetchone()[0]
+            next_order = conn.execute(
+                "SELECT COALESCE(MAX(task_order), 0) + 1 FROM phase1_process_tasks WHERE process_code=? AND active=1",
+                (code,),
+            ).fetchone()[0]
+            conn.execute(
+                """INSERT INTO phase1_process_tasks
+                (process_code, task_id, name, sox, requires_approval, active, task_order, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?)""",
+                (code, next_id, cleaned_name, int(sox), int(requires_approval), next_order, datetime.now().isoformat()),
+            )
+            conn.commit()
+            return next_id
+
+    def update_process_task(self, code: str, task_id: int, name: str, sox: bool, requires_approval: bool) -> None:
+        cleaned_name = name.strip()
+        if not cleaned_name:
+            raise ValueError("El nombre de la tarea no puede estar vacío.")
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """UPDATE phase1_process_tasks
+                SET name=?, sox=?, requires_approval=?, updated_at=?
+                WHERE process_code=? AND task_id=? AND active=1""",
+                (cleaned_name, int(sox), int(requires_approval), datetime.now().isoformat(), code, task_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("La tarea seleccionada ya no está disponible.")
+            conn.commit()
+
+    def deactivate_process_task(self, code: str, task_id: int) -> None:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE phase1_process_tasks SET active=0, updated_at=? WHERE process_code=? AND task_id=? AND active=1",
+                (datetime.now().isoformat(), code, task_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("La tarea seleccionada ya no está disponible.")
+            conn.commit()
 
     def periods(self) -> list[str]:
         with self._connect() as conn:
@@ -136,3 +222,17 @@ class Repository:
     def notification_history(self, period: str, code: str) -> list[sqlite3.Row]:
         with self._connect() as conn:
             return conn.execute("SELECT * FROM phase1_notifications WHERE period=? AND process_code=? ORDER BY id DESC", (period, code)).fetchall()
+
+    def process_content(self, code: str) -> sqlite3.Row | None:
+        with self._connect() as conn:
+            return conn.execute("SELECT * FROM phase1_process_content WHERE process_code=?", (code,)).fetchone()
+
+    def save_process_content(self, code: str, what_to_do: str, manual_url: str, important_note: str = "") -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO phase1_process_content
+                (process_code, what_to_do, manual_url, important_note, updated_at)
+                VALUES (?, ?, ?, ?, ?)""",
+                (code, what_to_do, manual_url, important_note, datetime.now().isoformat()),
+            )
+            conn.commit()

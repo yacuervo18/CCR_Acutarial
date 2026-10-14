@@ -51,7 +51,57 @@ recordatorios para ese proceso.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-## Fase 2 propuesta
+## Fase visual autorizada
+
+CCR y el Motor F394 usan `Icono_Sura.png` como icono de la pestaña del
+navegador. La aplicación principal de CCR muestra los nombres de los procesos
+sin iconos en el menú lateral y presenta el acceso al Motor F394 con el botón
+amarillo definido para esa integración. Estos cambios son exclusivamente
+visuales y no alteran la base SQLite, la programación, el estado de las tareas
+ni la lógica operativa del Motor F394.
+
+## Fase 2: contenidos en modo lectura
+
+Cada proceso tiene una carpeta de contenido bajo `CCR/content/<codigo>/`.
+`que_hay_que_hacer.txt` contiene el texto informativo, `manual_url.txt` puede
+contener un enlace de manual, `importante.txt` puede contener una observación
+destacada y `media/` contiene el video explicativo del proceso. La ausencia de
+un video o manual se muestra como un estado pendiente.
+
+## Fases 3 y 4: video y manual administrables
+
+Los botones de lápiz permiten administrar el contenido sin entrar al código:
+
+- “Qué hay que hacer” y “Importante” se guardan por proceso en la tabla
+  independiente `phase1_process_content` de SQLite.
+- El manual sugerido acepta únicamente enlaces `http://` o `https://`.
+  Guardar el campo vacío elimina el enlace configurado.
+- El video permite cargar o reemplazar archivos `.mp4`, `.webm` y `.mov` de
+  hasta 200 MB. Se guarda en `CCR/content/<codigo>/media/` con escritura
+  atómica y se eliminan las versiones anteriores del mismo proceso.
+- Eliminar un video requiere confirmación y elimina el archivo físico de la
+  carpeta del proceso.
+- Los periodos históricos permanecen en modo de solo lectura.
+- Estas funciones no modifican tareas, contadores, programación, notificaciones
+  ni el Motor F394.
+
+## Fase 5: tareas administrables
+
+El catálogo de tareas de cada proceso se guarda de forma independiente en la
+tabla `phase1_process_tasks`. El lápiz ubicado junto al encabezado “Tareas”
+abre el panel de edición del proceso seleccionado. Desde allí se puede:
+
+- agregar una tarea;
+- cambiar su nombre y marcarla como SOX o con aprobación requerida;
+- quitarla con confirmación.
+
+Quitar una tarea la desactiva del catálogo y conserva las marcas históricas en
+`phase1_tasks`; no se borra información de la base. Los contadores del proceso,
+las tareas pendientes, el avance global y los indicadores SOX/aprobación se
+recalculan usando únicamente las tareas activas. La programación, las
+notificaciones, los contenidos y el Motor F394 permanecen independientes.
+
+## Próxima fase propuesta
 
 Primero conectar Índices y monedas con Rentabilidades; después usar esos
 insumos en F394 y en las reservas. Las dependencias deberían derivar

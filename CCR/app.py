@@ -3,14 +3,22 @@ from datetime import datetime, time
 from html import escape
 import json
 from pathlib import Path
+from urllib.parse import urlparse
 
 from src.phase1.config import PROCESOS, proceso_por_codigo
+from src.phase1.content import delete_videos, load_process_content, save_uploaded_video
 from src.phase1.domain import EstadoProceso
 from src.phase1.notifications import NotificationService, parse_destinatarios
 from src.phase1.repository import Repository
 from src.phase1.service import ProcessService
 
-st.set_page_config(page_title="Centro de control y gestión Actuarial", layout="wide", initial_sidebar_state="expanded")
+page_icon_path = Path(__file__).resolve().parents[1] / "Icono_Sura.png"
+st.set_page_config(
+    page_title="Centro de control y gestión Actuarial",
+    page_icon=str(page_icon_path),
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 
 @st.cache_resource
@@ -89,6 +97,15 @@ st.markdown("""<style>
 .ccr-process-extension {border: 1px solid #dededc; border-radius: 12px; padding: .85rem; background: #f8fafc; min-height: 146px; box-sizing: border-box;}
 .ccr-process-extension-title {font-size: .95rem; font-weight: 650; color: #303030; margin-bottom: .35rem;}
 .ccr-process-extension-copy {font-size: .78rem; color: #667085; line-height: 1.4; margin-bottom: .75rem;}
+.st-key-motor-f394-launcher [data-testid="stLinkButton"] a {background: #f2c94c; border-color: #d9ad1e; color: #3f3200; font-weight: 650;}
+.st-key-motor-f394-launcher [data-testid="stLinkButton"] a:hover {background: #e8bb32; border-color: #c79d12; color: #3f3200;}
+.ccr-content-card {border: 1px solid #dededc; border-radius: 12px; padding: .8rem; background: #fff; min-height: 150px;}
+.ccr-content-card-header {font-size: .95rem; font-weight: 650; color: #303030; margin-bottom: .55rem;}
+.ccr-edit-button [data-testid="stButton"] button {min-width: 2rem; width: 2rem; height: 2rem; padding: 0; border: 1px solid #c9c9c7; border-radius: 6px; color: #4b5563; background: #fff;}
+.ccr-edit-button [data-testid="stButton"] button:hover {border-color: #185FA5; color: #185FA5; background: #f5f9ff;}
+.ccr-important-card {border: 1px solid #f2c5c5; border-radius: 12px; padding: .8rem; background: #fff1f1; color: #b42318; min-height: 84px; box-sizing: border-box;}
+.ccr-important-card .ccr-content-card-header {color: #b42318;}
+.ccr-important-card .ccr-muted {color: #b42318; opacity: .72;}
 </style>""", unsafe_allow_html=True)
 
 
@@ -166,7 +183,8 @@ def render_process_extension(code: str) -> bool:
         "</div></div>",
         unsafe_allow_html=True,
     )
-    st.link_button("Abrir Motor F394", MOTOR_F394_URL, use_container_width=True)
+    with st.container(key="motor-f394-launcher"):
+        st.link_button("Abrir Motor F394", MOTOR_F394_URL, use_container_width=True)
     return True
 
 
@@ -179,29 +197,263 @@ def render_process_tasks(process, period: str, code: str, readonly: bool) -> Non
             st.rerun()
 
 
+def render_task_management(code: str, readonly: bool) -> None:
+    edit_key = f"edit-process-tasks-{code}"
+    task_header, task_edit = st.columns([1, 0.08], vertical_alignment="center")
+    with task_header:
+        st.markdown('<div class="ccr-content-card-header">Tareas</div>', unsafe_allow_html=True)
+    with task_edit:
+        st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
+        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Editar tareas del proceso"):
+            st.session_state[edit_key] = True
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if st.session_state.get(edit_key, False) and not readonly:
+        st.caption("Los cambios aplican al catálogo del proceso y actualizan los contadores. Las marcas históricas no se eliminan.")
+        task_rows = repo.process_tasks(code)
+        task_options = {row["task_id"]: row["name"] for row in task_rows}
+        selected_id = st.selectbox(
+            "Tarea a editar o quitar",
+            options=[None, *task_options],
+            format_func=lambda value: "Seleccione una tarea" if value is None else task_options[value],
+            key=f"task-selected-{code}",
+        )
+        if selected_id is not None:
+            selected = next(row for row in task_rows if row["task_id"] == selected_id)
+            with st.form(f"edit-task-form-{code}"):
+                name = st.text_input("Nombre", value=selected["name"])
+                sox = st.checkbox("Control SOX", value=bool(selected["sox"]))
+                requires_approval = st.checkbox("Requiere aprobación", value=bool(selected["requires_approval"]))
+                save, remove = st.columns(2)
+                with save:
+                    save_task = st.form_submit_button("Guardar cambios")
+                with remove:
+                    remove_task = st.form_submit_button("Quitar tarea")
+                if save_task:
+                    try:
+                        repo.update_process_task(code, selected_id, name, sox, requires_approval)
+                    except ValueError as error:
+                        st.error(str(error))
+                    else:
+                        st.rerun()
+                if remove_task:
+                    st.session_state[f"confirm-remove-task-{code}"] = selected_id
+                    st.rerun()
+            if st.session_state.get(f"confirm-remove-task-{code}") == selected_id:
+                st.warning(f"Confirme que desea quitar “{selected['name']}”.")
+                confirm, cancel = st.columns(2)
+                with confirm:
+                    if st.button("Confirmar", key=f"confirm-remove-{code}"):
+                        repo.deactivate_process_task(code, selected_id)
+                        st.session_state.pop(f"confirm-remove-task-{code}", None)
+                        st.rerun()
+                with cancel:
+                    if st.button("Cancelar", key=f"cancel-remove-{code}"):
+                        st.session_state.pop(f"confirm-remove-task-{code}", None)
+                        st.rerun()
+        with st.form(f"add-task-form-{code}"):
+            st.markdown("**Agregar tarea**")
+            new_name = st.text_input("Nombre de la nueva tarea", key=f"new-task-name-{code}")
+            new_sox = st.checkbox("Control SOX", key=f"new-task-sox-{code}")
+            new_approval = st.checkbox("Requiere aprobación", key=f"new-task-approval-{code}")
+            if st.form_submit_button("Agregar tarea"):
+                try:
+                    repo.add_process_task(code, new_name, new_sox, new_approval)
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.rerun()
+        if st.button("Cerrar edición", key=f"{edit_key}-close"):
+            st.session_state[edit_key] = False
+            st.rerun()
+
+
+def render_text_content_card(code: str, content, readonly: bool) -> None:
+    edit_key = f"edit-content-text-{code}"
+    text_header, text_edit = st.columns([1, 0.08], vertical_alignment="center")
+    with text_header:
+        st.markdown('<div class="ccr-content-card-header">Qué hay que hacer</div>', unsafe_allow_html=True)
+    with text_edit:
+        st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
+        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Editar texto"):
+            st.session_state[edit_key] = True
+        st.markdown("</div>", unsafe_allow_html=True)
+    if st.session_state.get(edit_key, False) and not readonly:
+        with st.form(f"{edit_key}-form"):
+            text_value = st.text_area("Texto", value=content.what_to_do, height=120, label_visibility="collapsed")
+            save, cancel = st.columns(2)
+            with save:
+                save_text = st.form_submit_button("Guardar")
+            with cancel:
+                cancel_text = st.form_submit_button("Cancelar")
+            if cancel_text:
+                st.session_state[edit_key] = False
+                st.rerun()
+            if save_text:
+                cleaned_text = text_value.strip()
+                if not cleaned_text:
+                    st.error("El texto de “Qué hay que hacer” no puede estar vacío.")
+                else:
+                    repo.save_process_content(code, cleaned_text, content.manual_url or "", content.important_note)
+                    st.session_state[edit_key] = False
+                    st.rerun()
+    else:
+        st.write(content.what_to_do)
+
+def render_video_content_card(code: str, content, readonly: bool) -> None:
+    edit_key = f"edit-content-video-{code}"
+    video_header, video_edit = st.columns([1, 0.08], vertical_alignment="center")
+    with video_header:
+        st.markdown('<div class="ccr-content-card-header">Video explicativo</div>', unsafe_allow_html=True)
+    with video_edit:
+        st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
+        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Administrar video"):
+            st.session_state[edit_key] = True
+        st.markdown("</div>", unsafe_allow_html=True)
+    if content.video_path:
+        st.video(str(content.video_path))
+    else:
+        st.info("Aún no hay un video cargado para este proceso.")
+    if st.session_state.get(edit_key, False):
+        with st.form(f"{edit_key}-form"):
+            uploaded_video = st.file_uploader(
+                "Cargar o reemplazar video",
+                type=["mp4", "webm", "mov"],
+                help="Formatos permitidos: MP4, WebM y MOV. Tamaño máximo: 200 MB.",
+            )
+            save_video = st.form_submit_button("Guardar video")
+            if save_video:
+                if uploaded_video is None:
+                    st.error("Seleccione un video antes de guardar.")
+                else:
+                    try:
+                        save_uploaded_video(code, uploaded_video)
+                    except (OSError, ValueError) as error:
+                        st.error(str(error))
+                    else:
+                        st.session_state[edit_key] = False
+                        st.rerun()
+        if content.video_path:
+            confirm_delete = st.checkbox(
+                "Confirmo que deseo eliminar el video de este proceso.",
+                key=f"{edit_key}-confirm-delete",
+            )
+            if st.button("Eliminar video", key=f"{edit_key}-delete", disabled=not confirm_delete):
+                try:
+                    delete_videos(code)
+                except OSError as error:
+                    st.error(f"No se pudo eliminar el video: {error}")
+                else:
+                    st.session_state[edit_key] = False
+                    st.rerun()
+        if st.button("Cerrar", key=f"{edit_key}-close"):
+            st.session_state[edit_key] = False
+            st.rerun()
+
+def render_manual_content_card(code: str, content, readonly: bool) -> None:
+    edit_key = f"edit-content-manual-{code}"
+    manual_header, manual_edit = st.columns([1, 0.08], vertical_alignment="center")
+    with manual_header:
+        st.markdown('<div class="ccr-content-card-header">Manual sugerido</div>', unsafe_allow_html=True)
+    with manual_edit:
+        st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
+        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Editar manual"):
+            st.session_state[edit_key] = True
+        st.markdown("</div>", unsafe_allow_html=True)
+    if st.session_state.get(edit_key, False) and not readonly:
+        with st.form(f"{edit_key}-form"):
+            manual_value = st.text_input("Enlace", value=content.manual_url or "", placeholder="https://...", label_visibility="collapsed")
+            save, cancel = st.columns(2)
+            with save:
+                save_manual = st.form_submit_button("Guardar")
+            with cancel:
+                cancel_manual = st.form_submit_button("Cancelar")
+            if cancel_manual:
+                st.session_state[edit_key] = False
+                st.rerun()
+            if save_manual:
+                cleaned_url = manual_value.strip()
+                if cleaned_url and urlparse(cleaned_url).scheme not in {"http", "https"}:
+                    st.error("El enlace del manual debe comenzar por http:// o https://.")
+                else:
+                    repo.save_process_content(code, content.what_to_do, cleaned_url, content.important_note)
+                    st.session_state[edit_key] = False
+                    st.rerun()
+    elif content.manual_url:
+        st.link_button("Ver manual sugerido", content.manual_url, use_container_width=True)
+    else:
+        st.info("Aún no hay un manual configurado para este proceso.")
+
+def render_important_content_card(code: str, content, readonly: bool) -> None:
+    edit_key = f"edit-content-important-{code}"
+    header, edit = st.columns([1, 0.08], vertical_alignment="center")
+    with header:
+        st.markdown('<div class="ccr-content-card-header">Importante</div>', unsafe_allow_html=True)
+    with edit:
+        st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
+        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Editar observación importante"):
+            st.session_state[edit_key] = True
+        st.markdown("</div>", unsafe_allow_html=True)
+    if st.session_state.get(edit_key, False) and not readonly:
+        with st.form(f"{edit_key}-form"):
+            note_value = st.text_area(
+                "Observación importante",
+                value=content.important_note,
+                height=100,
+                placeholder="Escriba una observación importante del proceso.",
+                label_visibility="collapsed",
+            )
+            save, cancel = st.columns(2)
+            with save:
+                save_note = st.form_submit_button("Guardar")
+            with cancel:
+                cancel_note = st.form_submit_button("Cancelar")
+            if cancel_note:
+                st.session_state[edit_key] = False
+                st.rerun()
+            if save_note:
+                repo.save_process_content(code, content.what_to_do, content.manual_url or "", note_value.strip())
+                st.session_state[edit_key] = False
+                st.rerun()
+    elif content.important_note:
+        st.markdown(f'<div>{escape(content.important_note).replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="ccr-muted">No hay una observación importante configurada.</div>', unsafe_allow_html=True)
+
+
 def render_process(period: str, code: str, readonly: bool = False) -> None:
-    process = proceso_por_codigo(code)
+    process_definition = proceso_por_codigo(code)
+    stored_content = repo.process_content(code)
+    stored_content_values = dict(stored_content) if stored_content else None
     summary = next(s for s in service.dashboard(period)["summaries"] if s.proceso.codigo == code)
+    process = summary.proceso
+    content = load_process_content(code, process_definition.descripcion, stored_content_values)
     st.title(process.nombre)
     st.caption(f"Periodo {period} · {summary.estado.value} · {summary.completadas}/{summary.total} tareas")
     if readonly:
         st.warning("Periodo histórico: consulta de solo lectura.")
-    st.info(process.descripcion)
-    with st.expander("Qué hay que hacer", expanded=True):
-        st.write(process.descripcion)
+    with st.container(key=f"content-card-description-{code}"):
+        render_text_content_card(code, content, readonly)
     with st.expander("Cómo se hace", expanded=True):
-        for index, step in enumerate(process.guia, 1):
-            st.write(f"{index}. {step}")
+        video_column, manual_column = st.columns(2, gap="large")
+        with video_column:
+            with st.container(key=f"content-card-video-{code}"):
+                render_video_content_card(code, content, readonly)
+        with manual_column:
+            with st.container(key=f"content-card-manual-{code}"):
+                render_manual_content_card(code, content, readonly)
+    with st.container(key=f"content-card-important-full-{code}"):
+        render_important_content_card(code, content, readonly)
     if code == "f394":
         tasks_column, extension_column = st.columns([1, 1], gap="large")
         with tasks_column:
-            st.subheader("Tareas")
+            render_task_management(code, readonly)
             render_process_tasks(process, period, code, readonly)
         with extension_column:
             st.subheader("Espacio del proceso")
             render_process_extension(code)
     else:
-        st.subheader("Tareas")
+        render_task_management(code, readonly)
         render_process_tasks(process, period, code, readonly)
     st.subheader("Programación y notificaciones")
     saved = repo.process_schedule(code, period)
@@ -238,15 +490,15 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
 
 
 nav_items = [
-    ("TABLERO", "▦", "TABLERO"),
-    ("RENTABILIDADES", "⌁", "RENTABILIDADES"),
-    ("ÍNDICES Y MONEDAS", "$", "ÍNDICES Y MONEDAS"),
-    ("F394", "▤", "F394"),
-    ("RESERVA DE SALARIO MÍNIMO", "♢", "RESERVA DE SALARIO MÍNIMO"),
-    ("RESERVA SINIESTROS AVISADOS (RBNS)", "▣", "RSA"),
-    ("RM LEY 100", "▤", "RM LEY 100"),
-    ("RM CONMUTACIÓN", "↔", "RM CONMUTACIÓN"),
-    ("RM ARL", "♡", "RM ARL"),
+    ("TABLERO", "TABLERO"),
+    ("RENTABILIDADES", "RENTABILIDADES"),
+    ("ÍNDICES Y MONEDAS", "ÍNDICES Y MONEDAS"),
+    ("F394", "F394"),
+    ("RESERVA DE SALARIO MÍNIMO", "RESERVA DE SALARIO MÍNIMO"),
+    ("RESERVA SINIESTROS AVISADOS (RBNS)", "RSA"),
+    ("RM LEY 100", "RM LEY 100"),
+    ("RM CONMUTACIÓN", "RM CONMUTACIÓN"),
+    ("RM ARL", "RM ARL"),
 ]
 valid_navigation = {item[0] for item in nav_items}
 
@@ -269,9 +521,9 @@ with st.sidebar:
     st.title("Centro de control y gestión Actuarial")
     selected_period = st.selectbox("Periodo", periods or [period_default], index=0)
     with st.container(key="ccr-nav-container"):
-        for key, icon, label in nav_items:
+        for key, label in nav_items:
             st.button(
-                f"{icon}  {label}",
+                label,
                 key=f"nav-{key}",
                 type="primary" if key == selected else "secondary",
                 use_container_width=True,
