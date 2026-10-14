@@ -101,6 +101,35 @@ las tareas pendientes, el avance global y los indicadores SOX/aprobación se
 recalculan usando únicamente las tareas activas. La programación, las
 notificaciones, los contenidos y el Motor F394 permanecen independientes.
 
+## Fase 6: modo local controlado
+
+CCR inicia en modo consulta. Para habilitar acciones administrativas se debe
+configurar `CCR_EDITOR_KEY` como variable de entorno antes de iniciar
+Streamlit. En la esquina superior derecha aparece “Ingresar como Admon”; allí
+se introduce la clave y solo se conserva la autorización en la sesión activa.
+La clave no se guarda en SQLite ni en el código. Al bloquear la edición o
+reiniciar CCR, los lápices, la administración de tareas, la programación y el
+reinicio de periodo vuelven a quedar protegidos. El marcado normal de tareas
+del periodo sigue disponible y los periodos históricos continúan en solo
+lectura.
+
+Ejemplo en PowerShell:
+
+```powershell
+$env:CCR_EDITOR_KEY = "use-una-clave-local-segura"
+.\.venv\Scripts\python.exe -m streamlit run app.py
+```
+
+También puede crear un archivo local `CCR/.env` o `CCR/.env.local` (ambos están
+excluidos de Git) con el siguiente contenido y reiniciar CCR:
+
+```text
+CCR_EDITOR_KEY=use-una-clave-local-segura
+```
+
+CCR carga esos archivos sin sobrescribir una variable de entorno existente.
+`.env.example` solo documenta la variable y no contiene una clave real.
+
 ## Próxima fase propuesta
 
 Primero conectar Índices y monedas con Rentabilidades; después usar esos

@@ -1,7 +1,9 @@
 import streamlit as st
 from datetime import datetime, time
 from html import escape
+import hmac
 import json
+import os
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -13,6 +15,25 @@ from src.phase1.repository import Repository
 from src.phase1.service import ProcessService
 
 page_icon_path = Path(__file__).resolve().parents[1] / "Icono_Sura.png"
+
+
+def load_local_environment() -> None:
+    """Load local key/value settings without overriding the process environment."""
+    for env_path in (Path(__file__).resolve().parent / ".env.local", Path(__file__).resolve().parent / ".env"):
+        if not env_path.is_file():
+            continue
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, value = line.split("=", 1)
+            name = name.strip()
+            value = value.strip().strip("\"'")
+            if name and name not in os.environ:
+                os.environ[name] = value
+
+
+load_local_environment()
 st.set_page_config(
     page_title="Centro de control y gestión Actuarial",
     page_icon=str(page_icon_path),
@@ -31,6 +52,42 @@ service = ProcessService(repo)
 period_default = datetime.now().strftime("%Y-%m")
 repo.ensure_period(period_default)
 periods = repo.periods()
+
+
+def editor_access_enabled() -> bool:
+    """Keeps administrative controls locked unless the local key is configured."""
+    configured_key = os.environ.get("CCR_EDITOR_KEY", "")
+    if not configured_key:
+        return False
+    return bool(st.session_state.get("editor_unlocked", False))
+
+
+def render_editor_access() -> bool:
+    configured_key = os.environ.get("CCR_EDITOR_KEY", "")
+    header_spacer, header_action = st.columns([1, 0.27], vertical_alignment="center")
+    with header_action:
+        if st.session_state.get("editor_unlocked", False):
+            with st.container(key="editor-access"):
+                st.caption("Edición habilitada")
+                if st.button("Bloquear edición", key="lock-editor"):
+                    st.session_state["editor_unlocked"] = False
+                    st.rerun()
+            return True
+        with st.container(key="editor-access"):
+            with st.popover("Ingresar como Admon"):
+                if not configured_key:
+                    st.warning("El modo edición no está configurado.")
+                    st.caption("Cree CCR/.env con CCR_EDITOR_KEY=su-clave-local y reinicie CCR.")
+                else:
+                    with st.form("editor-access-form"):
+                        entered_key = st.text_input("Clave de edición", type="password")
+                        unlock = st.form_submit_button("Habilitar edición", use_container_width=True)
+                        if unlock:
+                            if hmac.compare_digest(entered_key, configured_key):
+                                st.session_state["editor_unlocked"] = True
+                                st.rerun()
+                            st.error("La clave de edición no es válida.")
+    return False
 
 st.markdown("""<style>
 .block-container {padding: .65rem 1.5rem 1rem; max-width: 1500px;}
@@ -101,8 +158,11 @@ st.markdown("""<style>
 .st-key-motor-f394-launcher [data-testid="stLinkButton"] a:hover {background: #e8bb32; border-color: #c79d12; color: #3f3200;}
 .ccr-content-card {border: 1px solid #dededc; border-radius: 12px; padding: .8rem; background: #fff; min-height: 150px;}
 .ccr-content-card-header {font-size: .95rem; font-weight: 650; color: #303030; margin-bottom: .55rem;}
-.ccr-edit-button [data-testid="stButton"] button {min-width: 2rem; width: 2rem; height: 2rem; padding: 0; border: 1px solid #c9c9c7; border-radius: 6px; color: #4b5563; background: #fff;}
+.ccr-edit-button [data-testid="stButton"] button {min-width: 1.55rem; width: 1.55rem; height: 1.55rem; padding: 0; border: 1px solid #c9c9c7; border-radius: 5px; color: #4b5563; background: #fff; font-size: .78rem; line-height: 1;}
 .ccr-edit-button [data-testid="stButton"] button:hover {border-color: #185FA5; color: #185FA5; background: #f5f9ff;}
+.st-key-editor-access [data-testid="stPopover"] button {font-size: .72rem; padding: .22rem .48rem; min-height: 1.7rem; white-space: nowrap;}
+.st-key-editor-access [data-testid="stCaptionContainer"] {margin: 0; font-size: .68rem; line-height: 1.1; white-space: nowrap;}
+.st-key-editor-access [data-testid="stButton"] button {font-size: .68rem; padding: .18rem .42rem; min-height: 1.55rem; white-space: nowrap;}
 .ccr-important-card {border: 1px solid #f2c5c5; border-radius: 12px; padding: .8rem; background: #fff1f1; color: #b42318; min-height: 84px; box-sizing: border-box;}
 .ccr-important-card .ccr-content-card-header {color: #b42318;}
 .ccr-important-card .ccr-muted {color: #b42318; opacity: .72;}
@@ -197,18 +257,25 @@ def render_process_tasks(process, period: str, code: str, readonly: bool) -> Non
             st.rerun()
 
 
-def render_task_management(code: str, readonly: bool) -> None:
-    edit_key = f"edit-process-tasks-{code}"
-    task_header, task_edit = st.columns([1, 0.08], vertical_alignment="center")
-    with task_header:
-        st.markdown('<div class="ccr-content-card-header">Tareas</div>', unsafe_allow_html=True)
-    with task_edit:
+def render_edit_header(title: str, edit_key: str, help_text: str, readonly: bool, editor_enabled: bool) -> None:
+    if readonly or not editor_enabled:
+        st.markdown(f'<div class="ccr-content-card-header">{title}</div>', unsafe_allow_html=True)
+        return
+    header, edit = st.columns([1, 0.06], vertical_alignment="center")
+    with header:
+        st.markdown(f'<div class="ccr-content-card-header">{title}</div>', unsafe_allow_html=True)
+    with edit:
         st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
-        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Editar tareas del proceso"):
+        if st.button("✎", key=f"{edit_key}-button", help=help_text):
             st.session_state[edit_key] = True
         st.markdown("</div>", unsafe_allow_html=True)
 
-    if st.session_state.get(edit_key, False) and not readonly:
+
+def render_task_management(code: str, readonly: bool, editor_enabled: bool) -> None:
+    edit_key = f"edit-process-tasks-{code}"
+    render_edit_header("Tareas", edit_key, "Editar tareas del proceso", readonly, editor_enabled)
+
+    if st.session_state.get(edit_key, False) and not readonly and editor_enabled:
         st.caption("Los cambios aplican al catálogo del proceso y actualizan los contadores. Las marcas históricas no se eliminan.")
         task_rows = repo.process_tasks(code)
         task_options = {row["task_id"]: row["name"] for row in task_rows}
@@ -268,17 +335,10 @@ def render_task_management(code: str, readonly: bool) -> None:
             st.rerun()
 
 
-def render_text_content_card(code: str, content, readonly: bool) -> None:
+def render_text_content_card(code: str, content, readonly: bool, editor_enabled: bool) -> None:
     edit_key = f"edit-content-text-{code}"
-    text_header, text_edit = st.columns([1, 0.08], vertical_alignment="center")
-    with text_header:
-        st.markdown('<div class="ccr-content-card-header">Qué hay que hacer</div>', unsafe_allow_html=True)
-    with text_edit:
-        st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
-        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Editar texto"):
-            st.session_state[edit_key] = True
-        st.markdown("</div>", unsafe_allow_html=True)
-    if st.session_state.get(edit_key, False) and not readonly:
+    render_edit_header("Qué hay que hacer", edit_key, "Editar texto", readonly, editor_enabled)
+    if st.session_state.get(edit_key, False) and not readonly and editor_enabled:
         with st.form(f"{edit_key}-form"):
             text_value = st.text_area("Texto", value=content.what_to_do, height=120, label_visibility="collapsed")
             save, cancel = st.columns(2)
@@ -300,21 +360,14 @@ def render_text_content_card(code: str, content, readonly: bool) -> None:
     else:
         st.write(content.what_to_do)
 
-def render_video_content_card(code: str, content, readonly: bool) -> None:
+def render_video_content_card(code: str, content, readonly: bool, editor_enabled: bool) -> None:
     edit_key = f"edit-content-video-{code}"
-    video_header, video_edit = st.columns([1, 0.08], vertical_alignment="center")
-    with video_header:
-        st.markdown('<div class="ccr-content-card-header">Video explicativo</div>', unsafe_allow_html=True)
-    with video_edit:
-        st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
-        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Administrar video"):
-            st.session_state[edit_key] = True
-        st.markdown("</div>", unsafe_allow_html=True)
+    render_edit_header("Video explicativo", edit_key, "Administrar video", readonly, editor_enabled)
     if content.video_path:
         st.video(str(content.video_path))
     else:
         st.info("Aún no hay un video cargado para este proceso.")
-    if st.session_state.get(edit_key, False):
+    if st.session_state.get(edit_key, False) and not readonly and editor_enabled:
         with st.form(f"{edit_key}-form"):
             uploaded_video = st.file_uploader(
                 "Cargar o reemplazar video",
@@ -350,17 +403,10 @@ def render_video_content_card(code: str, content, readonly: bool) -> None:
             st.session_state[edit_key] = False
             st.rerun()
 
-def render_manual_content_card(code: str, content, readonly: bool) -> None:
+def render_manual_content_card(code: str, content, readonly: bool, editor_enabled: bool) -> None:
     edit_key = f"edit-content-manual-{code}"
-    manual_header, manual_edit = st.columns([1, 0.08], vertical_alignment="center")
-    with manual_header:
-        st.markdown('<div class="ccr-content-card-header">Manual sugerido</div>', unsafe_allow_html=True)
-    with manual_edit:
-        st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
-        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Editar manual"):
-            st.session_state[edit_key] = True
-        st.markdown("</div>", unsafe_allow_html=True)
-    if st.session_state.get(edit_key, False) and not readonly:
+    render_edit_header("Manual sugerido", edit_key, "Editar manual", readonly, editor_enabled)
+    if st.session_state.get(edit_key, False) and not readonly and editor_enabled:
         with st.form(f"{edit_key}-form"):
             manual_value = st.text_input("Enlace", value=content.manual_url or "", placeholder="https://...", label_visibility="collapsed")
             save, cancel = st.columns(2)
@@ -384,17 +430,10 @@ def render_manual_content_card(code: str, content, readonly: bool) -> None:
     else:
         st.info("Aún no hay un manual configurado para este proceso.")
 
-def render_important_content_card(code: str, content, readonly: bool) -> None:
+def render_important_content_card(code: str, content, readonly: bool, editor_enabled: bool) -> None:
     edit_key = f"edit-content-important-{code}"
-    header, edit = st.columns([1, 0.08], vertical_alignment="center")
-    with header:
-        st.markdown('<div class="ccr-content-card-header">Importante</div>', unsafe_allow_html=True)
-    with edit:
-        st.markdown('<div class="ccr-edit-button">', unsafe_allow_html=True)
-        if st.button("✎", key=f"{edit_key}-button", disabled=readonly, help="Editar observación importante"):
-            st.session_state[edit_key] = True
-        st.markdown("</div>", unsafe_allow_html=True)
-    if st.session_state.get(edit_key, False) and not readonly:
+    render_edit_header("Importante", edit_key, "Editar observación importante", readonly, editor_enabled)
+    if st.session_state.get(edit_key, False) and not readonly and editor_enabled:
         with st.form(f"{edit_key}-form"):
             note_value = st.text_area(
                 "Observación importante",
@@ -428,32 +467,33 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
     summary = next(s for s in service.dashboard(period)["summaries"] if s.proceso.codigo == code)
     process = summary.proceso
     content = load_process_content(code, process_definition.descripcion, stored_content_values)
+    editor_enabled = editor_access_enabled()
     st.title(process.nombre)
     st.caption(f"Periodo {period} · {summary.estado.value} · {summary.completadas}/{summary.total} tareas")
     if readonly:
         st.warning("Periodo histórico: consulta de solo lectura.")
     with st.container(key=f"content-card-description-{code}"):
-        render_text_content_card(code, content, readonly)
+        render_text_content_card(code, content, readonly, editor_enabled)
     with st.expander("Cómo se hace", expanded=True):
         video_column, manual_column = st.columns(2, gap="large")
         with video_column:
             with st.container(key=f"content-card-video-{code}"):
-                render_video_content_card(code, content, readonly)
+                render_video_content_card(code, content, readonly, editor_enabled)
         with manual_column:
             with st.container(key=f"content-card-manual-{code}"):
-                render_manual_content_card(code, content, readonly)
+                render_manual_content_card(code, content, readonly, editor_enabled)
     with st.container(key=f"content-card-important-full-{code}"):
-        render_important_content_card(code, content, readonly)
+        render_important_content_card(code, content, readonly, editor_enabled)
     if code == "f394":
         tasks_column, extension_column = st.columns([1, 1], gap="large")
         with tasks_column:
-            render_task_management(code, readonly)
+            render_task_management(code, readonly, editor_enabled)
             render_process_tasks(process, period, code, readonly)
         with extension_column:
             st.subheader("Espacio del proceso")
             render_process_extension(code)
     else:
-        render_task_management(code, readonly)
+        render_task_management(code, readonly, editor_enabled)
         render_process_tasks(process, period, code, readonly)
     st.subheader("Programación y notificaciones")
     saved = repo.process_schedule(code, period)
@@ -462,18 +502,19 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
     recipient_text = "\n".join(f"{item['label']} | {item['value']}" for item in saved_recipients)
     with st.expander("Configurar programación", expanded=not bool(saved)):
         with st.form(f"schedule-{period}-{code}"):
-            scope = st.radio("Aplicar configuración", ["General: todos los meses", f"Excepción: {period}"], horizontal=True, disabled=readonly)
-            schedule_date = st.date_input("Fecha de inicio", value=datetime.fromisoformat(saved["start_date"]).date() if saved and saved["start_date"] else datetime.now().date(), disabled=readonly)
-            schedule_time = st.time_input("Hora", value=time.fromisoformat(saved["scheduled_time"]) if saved else time(8, 0), disabled=readonly)
-            month_mode = st.radio("Meses", ["Todos", "Seleccionar"], index=0 if saved_months == list(range(1, 13)) else 1, horizontal=True, disabled=readonly)
+            controls_disabled = readonly or not editor_enabled
+            scope = st.radio("Aplicar configuración", ["General: todos los meses", f"Excepción: {period}"], horizontal=True, disabled=controls_disabled)
+            schedule_date = st.date_input("Fecha de inicio", value=datetime.fromisoformat(saved["start_date"]).date() if saved and saved["start_date"] else datetime.now().date(), disabled=controls_disabled)
+            schedule_time = st.time_input("Hora", value=time.fromisoformat(saved["scheduled_time"]) if saved else time(8, 0), disabled=controls_disabled)
+            month_mode = st.radio("Meses", ["Todos", "Seleccionar"], index=0 if saved_months == list(range(1, 13)) else 1, horizontal=True, disabled=controls_disabled)
             month_options = list(range(1, 13))
             months = month_options
             if month_mode == "Seleccionar":
-                months = st.multiselect("Elegir meses", month_options, default=saved_months, format_func=lambda month: datetime(2000, month, 1).strftime("%b").capitalize(), disabled=readonly)
+                months = st.multiselect("Elegir meses", month_options, default=saved_months, format_func=lambda month: datetime(2000, month, 1).strftime("%b").capitalize(), disabled=controls_disabled)
             frequency_options = [("Al abrir la aplicación", 1440), ("Cada 30 minutos", 30), ("Cada hora", 60), ("Cada 2 horas", 120)]
-            frequency = st.selectbox("Frecuencia", frequency_options, format_func=lambda item: item[0], index=next((i for i, item in enumerate(frequency_options) if saved and item[1] == saved["interval_minutes"]), 0), disabled=readonly)
-            recipients = st.text_area("Destinatarios Teams (Nombre | correo o identificador)", value=recipient_text, placeholder="Carlos | carlos@empresa.com", height=72, disabled=readonly)
-            if st.form_submit_button("Guardar programación", disabled=readonly):
+            frequency = st.selectbox("Frecuencia", frequency_options, format_func=lambda item: item[0], index=next((i for i, item in enumerate(frequency_options) if saved and item[1] == saved["interval_minutes"]), 0), disabled=controls_disabled)
+            recipients = st.text_area("Destinatarios Teams (Nombre | correo o identificador)", value=recipient_text, placeholder="Carlos | carlos@empresa.com", height=72, disabled=controls_disabled)
+            if st.form_submit_button("Guardar programación", disabled=controls_disabled):
                 try:
                     if not months:
                         raise ValueError("Seleccione al menos un mes.")
@@ -533,7 +574,7 @@ with st.sidebar:
     st.caption("Los periodos anteriores se consultan en modo lectura recomendado.")
     st.divider()
     with st.container(key="ccr-reset-container"):
-        if st.button("Reiniciar tareas del periodo", use_container_width=True):
+        if st.button("Reiniciar tareas del periodo", use_container_width=True, disabled=not editor_access_enabled()):
             st.session_state["confirm_reset_period"] = selected_period
         if st.session_state.get("confirm_reset_period") == selected_period:
             st.caption(f"Se reiniciarán las tareas de {selected_period}. La programación no cambia.")
@@ -557,6 +598,7 @@ else:
     reminders = st.session_state["daily_reminders"]
 
 render_progress(selected_period)
+editor_enabled = render_editor_access()
 if selected == "TABLERO":
     render_dashboard(selected_period, reminders)
 else:
