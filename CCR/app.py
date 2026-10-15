@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 
+from asistente import mostrar_asistente
 from src.phase1.config import PROCESOS, proceso_por_codigo
 from src.phase1.content import delete_videos, load_process_content, save_uploaded_video
 from src.phase1.domain import EstadoProceso
@@ -631,3 +632,4 @@ if selected == "TABLERO":
 else:
     render_process(selected_period, next(p.codigo for p in PROCESOS if p.nombre.upper() == selected), readonly=selected_period != period_default)
 export_status(service, selected_period)
+mostrar_asistente()
