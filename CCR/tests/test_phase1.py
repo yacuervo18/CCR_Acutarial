@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import json
 
 import pytest
 
@@ -9,6 +10,7 @@ from src.phase1.notifications import validar_destinatarios, parse_destinatarios
 from src.phase1.repository import Repository
 from src.phase1.service import ProcessService
 from src.phase1.content import delete_videos, load_process_content, save_uploaded_video
+from src.phase1.status_export import export_status
 
 
 def test_state_derivation_covers_priority_rules():
@@ -54,6 +56,28 @@ def test_process_schedule_only_reminds_when_tasks_are_pending(tmp_path):
     for task_id in range(1, 6):
         repository.set_task("2026-10", "f394", task_id, True)
     assert not any(reminder.proceso == "f394" for reminder in service.daily_reminders("2026-10", datetime(2026, 10, 7, 9, 0)))
+
+
+def test_schedule_days_and_deadline_drive_alerts(tmp_path):
+    repository = Repository(tmp_path / "ccr.db")
+    service = ProcessService(repository)
+    repository.save_process_schedule(
+        "f394",
+        "2026-10-02",
+        "08:00",
+        [10],
+        1440,
+        [{"label": "Carlos", "value": "carlos@empresa.com"}],
+        deadline_date="2026-10-16",
+        notice_days=2,
+        days=[2, 3],
+    )
+    reminders = service.daily_reminders("2026-10", datetime(2026, 10, 2, 9, 0))
+    assert any(reminder.proceso == "f394" for reminder in reminders)
+    repository.add_notification("2026-10", "f394", '{"tipo_evento":"recordatorio_pendiente"}')
+    assert not service.daily_reminders("2026-10", datetime(2026, 10, 3, 9, 0))
+    alerts = service.central_alerts("2026-10", now=datetime(2026, 10, 14, 9, 0))
+    assert any(alert.titulo == "Próximo vencimiento" for alert in alerts)
 
 
 def test_recipient_lines_support_name_and_identifier():
@@ -111,6 +135,29 @@ def test_process_content_is_persisted_separately_from_tasks(tmp_path):
     assert content["manual_url"] == "https://manual.example"
     assert content["important_note"] == "Observación"
     assert repository.completed("2026-10", "f394") == set()
+
+
+def test_status_export_writes_pending_tasks_and_schedule(tmp_path, monkeypatch):
+    repository = Repository(tmp_path / "ccr.db")
+    service = ProcessService(repository)
+    repository.save_process_schedule(
+        "rentabilidades",
+        "2026-10-02",
+        "08:00",
+        [10],
+        60,
+        [{"label": "Carlos", "value": "carlos@empresa.com"}],
+    )
+    monkeypatch.setenv("CCR_NOTIFICATIONS_DIR", str(tmp_path / "notificaciones"))
+
+    destination = export_status(service, "2026-10", datetime(2026, 10, 1, 12, 30))
+
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+    rentabilidades = next(item for item in payload["procesos"] if item["codigo"] == "rentabilidades")
+    assert payload["periodo"] == "2026-10"
+    assert rentabilidades["debe_notificar"] is True
+    assert rentabilidades["programacion"]["meses"] == [10]
+    assert rentabilidades["pendientes"]
 
 
 class UploadedVideo:

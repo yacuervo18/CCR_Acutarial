@@ -17,6 +17,7 @@ class TipoAlerta(str, Enum):
     BLOQUEADO = "Proceso bloqueado"
     VENCIDO = "Vencido"
     SOX = "Control SOX pendiente"
+    APROBACION = "Aprobación pendiente"
     MASIVO = "Proceso masivo próximo"
 
 

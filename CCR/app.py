@@ -13,6 +13,7 @@ from src.phase1.domain import EstadoProceso
 from src.phase1.notifications import NotificationService, parse_destinatarios
 from src.phase1.repository import Repository
 from src.phase1.service import ProcessService
+from src.phase1.status_export import export_status
 
 page_icon_path = Path(__file__).resolve().parents[1] / "Icono_Sura.png"
 
@@ -210,7 +211,7 @@ def render_dashboard(period: str, reminders: list) -> None:
         st.markdown(f'<div class="ccr-panel"><div class="ccr-panel-header">Estado de procesos</div>{"".join(process_rows)}</div>', unsafe_allow_html=True)
     with right:
         alert_rows = []
-        if not data["alerts"]:
+        if not data["alerts"] and not reminders:
             alert_rows.append('<div class="ccr-alert-row"><div class="ccr-alert-title">Sin alertas activas</div><div class="ccr-alert-description">No hay alertas derivadas del estado actual.</div></div>')
         for alert in data["alerts"]:
             alert_rows.append(f'<div class="ccr-alert-row"><div class="ccr-alert-title">{escape(alert.titulo)}</div><div class="ccr-alert-description">{escape(alert.descripcion)}</div></div>')
@@ -498,34 +499,60 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
     st.subheader("Programación y notificaciones")
     saved = repo.process_schedule(code, period)
     saved_months = json.loads(saved["months"]) if saved else list(range(1, 13))
+    saved_days = json.loads(saved["days"]) if saved and "days" in saved.keys() else []
     saved_recipients = json.loads(saved["recipients"]) if saved else []
     recipient_text = "\n".join(f"{item['label']} | {item['value']}" for item in saved_recipients)
-    with st.expander("Configurar programación", expanded=not bool(saved)):
+    with st.expander("1. Calendario y reglas de aviso", expanded=not bool(saved)):
         with st.form(f"schedule-{period}-{code}"):
             controls_disabled = readonly or not editor_enabled
-            scope = st.radio("Aplicar configuración", ["General: todos los meses", f"Excepción: {period}"], horizontal=True, disabled=controls_disabled)
-            schedule_date = st.date_input("Fecha de inicio", value=datetime.fromisoformat(saved["start_date"]).date() if saved and saved["start_date"] else datetime.now().date(), disabled=controls_disabled)
-            schedule_time = st.time_input("Hora", value=time.fromisoformat(saved["scheduled_time"]) if saved else time(8, 0), disabled=controls_disabled)
-            month_mode = st.radio("Meses", ["Todos", "Seleccionar"], index=0 if saved_months == list(range(1, 13)) else 1, horizontal=True, disabled=controls_disabled)
+            scope = st.radio("Aplicar", ["General", f"Excepción {period}"], horizontal=True, disabled=controls_disabled)
+            first_row = st.columns(4)
+            with first_row[0]:
+                schedule_date = st.date_input("Inicio", value=datetime.fromisoformat(saved["start_date"]).date() if saved and saved["start_date"] else datetime.now().date(), disabled=controls_disabled)
+            with first_row[1]:
+                deadline_date = st.date_input("Fecha límite", value=datetime.fromisoformat(saved["deadline_date"]).date() if saved and "deadline_date" in saved.keys() and saved["deadline_date"] else datetime.now().date(), disabled=controls_disabled)
+            with first_row[2]:
+                schedule_time = st.time_input("Hora", value=time.fromisoformat(saved["scheduled_time"]) if saved else time(8, 0), disabled=controls_disabled)
+            with first_row[3]:
+                notice_days = st.number_input("Avisar antes (días)", min_value=0, max_value=30, value=int(saved["notice_days"]) if saved and "notice_days" in saved.keys() else 2, disabled=controls_disabled)
+            second_row = st.columns(4)
+            with second_row[0]:
+                month_mode = st.radio("Meses", ["Todos", "Seleccionar"], index=0 if saved_months == list(range(1, 13)) else 1, horizontal=True, disabled=controls_disabled)
             month_options = list(range(1, 13))
             months = month_options
             if month_mode == "Seleccionar":
-                months = st.multiselect("Elegir meses", month_options, default=saved_months, format_func=lambda month: datetime(2000, month, 1).strftime("%b").capitalize(), disabled=controls_disabled)
-            frequency_options = [("Al abrir la aplicación", 1440), ("Cada 30 minutos", 30), ("Cada hora", 60), ("Cada 2 horas", 120)]
-            frequency = st.selectbox("Frecuencia", frequency_options, format_func=lambda item: item[0], index=next((i for i, item in enumerate(frequency_options) if saved and item[1] == saved["interval_minutes"]), 0), disabled=controls_disabled)
-            recipients = st.text_area("Destinatarios Teams (Nombre | correo o identificador)", value=recipient_text, placeholder="Carlos | carlos@empresa.com", height=72, disabled=controls_disabled)
+                with second_row[1]:
+                    months = st.multiselect("Elegir meses", month_options, default=saved_months, format_func=lambda month: datetime(2000, month, 1).strftime("%b").capitalize(), disabled=controls_disabled)
+            with second_row[1 if month_mode == "Todos" else 2]:
+                days = st.multiselect("Días del mes", list(range(1, 32)), default=saved_days, placeholder="Todos", disabled=controls_disabled)
+            frequency_options = [("Al abrir", 1440), ("Cada 30 min", 30), ("Cada hora", 60), ("Cada 2 horas", 120)]
+            with second_row[3]:
+                frequency = st.selectbox("Repetir aviso", frequency_options, format_func=lambda item: item[0], index=next((i for i, item in enumerate(frequency_options) if saved and item[1] == saved["interval_minutes"]), 0), disabled=controls_disabled)
+            recipients = st.text_area("3. Destinatarios y canal · Teams (Nombre | correo o identificador)", value=recipient_text, placeholder="Carlos | carlos@empresa.com", height=56, disabled=controls_disabled)
             if st.form_submit_button("Guardar programación", disabled=controls_disabled):
                 try:
                     if not months:
                         raise ValueError("Seleccione al menos un mes.")
+                    if deadline_date < schedule_date:
+                        raise ValueError("La fecha límite no puede ser anterior al inicio.")
                     parsed_recipients = parse_destinatarios(recipients)
-                    repo.save_process_schedule(code, schedule_date.isoformat(), schedule_time.strftime("%H:%M"), months, frequency[1], parsed_recipients, period if scope.startswith("Excepción") else None)
+                    repo.save_process_schedule(code, schedule_date.isoformat(), schedule_time.strftime("%H:%M"), months, frequency[1], parsed_recipients, period if scope.startswith("Excepción") else None, deadline_date.isoformat(), int(notice_days), days)
                     st.success("Programación guardada correctamente.")
                 except ValueError as error:
                     st.error(str(error))
+    with st.expander("2. Estado central de alertas"):
+        process_alerts = [
+            alert for alert in service.central_alerts(period)
+            if process.nombre in alert.descripcion or alert.descripcion == process.nombre
+        ]
+        st.caption(
+            f"El motor central detecta {len(process_alerts)} alerta(s) de este proceso. "
+            "El Panel Alertas y estado_ccr.json usan este mismo resultado."
+        )
     history = repo.notification_history(period, code)
     if history:
-        with st.expander("Historial simulado"):
+        with st.expander("4. Historial local de notificaciones"):
+            st.caption("Registro local de prueba. Teams se conectará mediante Power Automate cuando el flujo esté configurado.")
             for event in history:
                 st.write(f"{event['created_at']} · {event['payload']}")
 
@@ -603,3 +630,4 @@ if selected == "TABLERO":
     render_dashboard(selected_period, reminders)
 else:
     render_process(selected_period, next(p.codigo for p in PROCESOS if p.nombre.upper() == selected), readonly=selected_period != period_default)
+export_status(service, selected_period)

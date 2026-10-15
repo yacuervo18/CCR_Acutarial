@@ -1,6 +1,6 @@
 """Casos de uso de tablero y procesos."""
 from .config import PROCESOS, con_tareas
-from datetime import datetime
+from datetime import date, datetime
 import json
 from .domain import Alerta, EstadoProceso, Proceso, ResumenProceso, Tarea, TipoAlerta, derivar_estado, porcentaje_global
 from .notifications import Notification
@@ -38,13 +38,47 @@ class ProcessService:
         pending = sum(s.total - s.completadas for s in summaries)
         sox = sum(1 for s in summaries for t in s.proceso.tareas if t.sox and not t.completada)
         approvals = sum(1 for s in summaries for t in s.proceso.tareas if t.requiere_aprobacion and not t.completada)
-        alerts = []
-        for s in summaries:
-            if s.estado == EstadoProceso.BLOQUEADO:
-                alerts.append(Alerta(TipoAlerta.BLOQUEADO, "Proceso bloqueado", s.proceso.nombre, "#888780"))
-            if s.estado == EstadoProceso.VENCIDO:
-                alerts.append(Alerta(TipoAlerta.VENCIDO, "Vencido", s.proceso.nombre, "#E24B4A"))
+        alerts = self.central_alerts(period, summaries=summaries)
         return {"summaries": summaries, "avance": porcentaje_global(summaries), "kpis": {"pending": pending, "overdue": counts[EstadoProceso.VENCIDO], "blocked": counts[EstadoProceso.BLOQUEADO], "critical": 2, "sox": sox, "approvals": approvals}, "alerts": alerts}
+
+    def central_alerts(self, period: str, *, summaries: tuple[ResumenProceso, ...] | None = None, now: datetime | None = None) -> list[Alerta]:
+        """Consolida alertas operativas y programadas de todos los procesos."""
+        now = now or datetime.now()
+        summaries = summaries or self.summaries(period)
+        alerts = []
+        for summary in summaries:
+            process = summary.proceso
+            pending = [task for task in process.tareas if not task.completada]
+            if summary.estado == EstadoProceso.BLOQUEADO:
+                alerts.append(Alerta(TipoAlerta.BLOQUEADO, "Proceso bloqueado", process.nombre, "#888780"))
+            if summary.estado == EstadoProceso.VENCIDO:
+                alerts.append(Alerta(TipoAlerta.VENCIDO, "Proceso vencido", f"{process.nombre}: {len(pending)} tareas pendientes.", "#E24B4A"))
+            sox_pending = sum(task.sox and not task.completada for task in process.tareas)
+            approval_pending = sum(task.requiere_aprobacion and not task.completada for task in process.tareas)
+            if sox_pending:
+                alerts.append(Alerta(TipoAlerta.SOX, "Control SOX pendiente", f"{process.nombre}: {sox_pending} tarea(s) SOX.", "#BA7517"))
+            if approval_pending:
+                alerts.append(Alerta(TipoAlerta.APROBACION, "Aprobación pendiente", f"{process.nombre}: {approval_pending} tarea(s) requieren aprobación.", "#854F0B"))
+
+            schedule = self.repository.process_schedule(process.codigo, period)
+            if not schedule or not pending or summary.estado == EstadoProceso.COMPLETADO:
+                continue
+            if schedule["start_date"]:
+                start = date.fromisoformat(schedule["start_date"])
+                if start > now.date() and (start - now.date()).days <= 1:
+                    alerts.append(Alerta(TipoAlerta.MASIVO, "Proceso próximo a iniciar", f"{process.nombre} inicia el {start.isoformat()}.", "#185FA5"))
+                elif start <= now.date():
+                    alerts.append(Alerta(TipoAlerta.MASIVO, "Proceso programado pendiente", f"{process.nombre}: {len(pending)} tarea(s) pendientes desde {start.isoformat()}.", "#E24B4A"))
+            deadline_value = schedule["deadline_date"] if "deadline_date" in schedule.keys() else ""
+            notice_days = int(schedule["notice_days"]) if "notice_days" in schedule.keys() else 2
+            if deadline_value:
+                deadline = date.fromisoformat(deadline_value)
+                remaining = (deadline - now.date()).days
+                if remaining < 0:
+                    alerts.append(Alerta(TipoAlerta.VENCIDO, "Proceso vencido", f"{process.nombre}: venció el {deadline.isoformat()} y tiene {len(pending)} tarea(s) pendientes.", "#E24B4A"))
+                elif remaining <= notice_days:
+                    alerts.append(Alerta(TipoAlerta.VENCIDO, "Próximo vencimiento", f"{process.nombre}: faltan {remaining} día(s) para vencer el {deadline.isoformat()}.", "#BA7517"))
+        return alerts
 
     def daily_reminders(self, period: str, now: datetime | None = None) -> list[Notification]:
         """Obtiene recordatorios vencidos para hoy; no repite uno ya registrado."""
@@ -57,6 +91,9 @@ class ProcessService:
             if schedule["start_date"] and now.date().isoformat() < schedule["start_date"]:
                 continue
             if now.month not in json.loads(schedule["months"]):
+                continue
+            scheduled_days = json.loads(schedule["days"]) if "days" in schedule.keys() else []
+            if scheduled_days and now.day not in scheduled_days:
                 continue
             if now.strftime("%H:%M") < schedule["scheduled_time"] or not self.repository.reminder_due(summary.proceso.codigo, period, now, schedule["interval_minutes"]):
                 continue

@@ -130,6 +130,32 @@ CCR_EDITOR_KEY=use-una-clave-local-segura
 CCR carga esos archivos sin sobrescribir una variable de entorno existente.
 `.env.example` solo documenta la variable y no contiene una clave real.
 
+## Fase 10: estado para Power Automate
+
+CCR genera automáticamente `estado_ccr.json` en la carpeta local sincronizada
+con OneDrive configurada en `CCR_NOTIFICATIONS_DIR`. Si la variable no está
+configurada, usa `OneDrive - Seguros Suramericana, S.A\Notificaciones` dentro
+de la carpeta del usuario de Windows. El archivo se actualiza al abrir o
+interactuar con CCR e incluye el periodo seleccionado, avance global,
+indicadores, alertas, tareas pendientes y programación por proceso.
+
+El tablero consolida en “Panel de alertas” los procesos bloqueados, vencidos,
+programados pendientes, próximos a iniciar, controles SOX pendientes y
+aprobaciones pendientes. Un proceso completado no genera alerta operativa ni
+queda marcado para notificación. Los procesos sin programación se muestran en
+el tablero, pero no activan avisos automáticos hasta que tengan una fecha y una
+frecuencia configuradas.
+
+Power Automate podrá leer este archivo desde OneDrive y enviar los recordatorios
+a Teams. Esta primera parte no realiza llamadas a Teams ni requiere Graph API.
+
+La programación compacta se organiza en cuatro bloques: calendario y reglas de
+aviso; estado central de alertas; destinatarios y canal; e historial local de
+notificaciones. Permite definir fecha de inicio, días del mes, fecha límite,
+anticipación y frecuencia. El motor central alimenta el Panel de alertas y
+`estado_ccr.json`; Power Automate consume ese archivo y posteriormente envía
+los avisos a Teams.
+
 ## Próxima fase propuesta
 
 Primero conectar Índices y monedas con Rentabilidades; después usar esos

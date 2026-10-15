@@ -31,7 +31,10 @@ class Repository:
                 start_date TEXT NOT NULL DEFAULT '',
                 scheduled_time TEXT NOT NULL,
                 months TEXT NOT NULL,
+                days TEXT NOT NULL DEFAULT '[]',
                 interval_minutes INTEGER NOT NULL DEFAULT 1440,
+                deadline_date TEXT NOT NULL DEFAULT '',
+                notice_days INTEGER NOT NULL DEFAULT 2,
                 recipients TEXT NOT NULL,
                 channel TEXT NOT NULL DEFAULT 'Teams',
                 updated_at TEXT NOT NULL
@@ -42,7 +45,10 @@ class Repository:
                 start_date TEXT NOT NULL,
                 scheduled_time TEXT NOT NULL,
                 months TEXT NOT NULL,
+                days TEXT NOT NULL DEFAULT '[]',
                 interval_minutes INTEGER NOT NULL DEFAULT 1440,
+                deadline_date TEXT NOT NULL DEFAULT '',
+                notice_days INTEGER NOT NULL DEFAULT 2,
                 recipients TEXT NOT NULL,
                 channel TEXT NOT NULL DEFAULT 'Teams',
                 updated_at TEXT NOT NULL,
@@ -60,6 +66,19 @@ class Repository:
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(phase1_process_schedules)")}
             if "start_date" not in columns:
                 conn.execute("ALTER TABLE phase1_process_schedules ADD COLUMN start_date TEXT NOT NULL DEFAULT ''")
+            if "deadline_date" not in columns:
+                conn.execute("ALTER TABLE phase1_process_schedules ADD COLUMN deadline_date TEXT NOT NULL DEFAULT ''")
+            if "notice_days" not in columns:
+                conn.execute("ALTER TABLE phase1_process_schedules ADD COLUMN notice_days INTEGER NOT NULL DEFAULT 2")
+            if "days" not in columns:
+                conn.execute("ALTER TABLE phase1_process_schedules ADD COLUMN days TEXT NOT NULL DEFAULT '[]'")
+            override_columns = {row["name"] for row in conn.execute("PRAGMA table_info(phase1_process_schedule_overrides)")}
+            if "deadline_date" not in override_columns:
+                conn.execute("ALTER TABLE phase1_process_schedule_overrides ADD COLUMN deadline_date TEXT NOT NULL DEFAULT ''")
+            if "notice_days" not in override_columns:
+                conn.execute("ALTER TABLE phase1_process_schedule_overrides ADD COLUMN notice_days INTEGER NOT NULL DEFAULT 2")
+            if "days" not in override_columns:
+                conn.execute("ALTER TABLE phase1_process_schedule_overrides ADD COLUMN days TEXT NOT NULL DEFAULT '[]'")
             content_columns = {row["name"] for row in conn.execute("PRAGMA table_info(phase1_process_content)")}
             if "important_note" not in content_columns:
                 conn.execute("ALTER TABLE phase1_process_content ADD COLUMN important_note TEXT NOT NULL DEFAULT ''")
@@ -176,14 +195,17 @@ class Repository:
         interval_minutes: int,
         recipients: list[dict[str, str]],
         period: str | None = None,
+        deadline_date: str = "",
+        notice_days: int = 2,
+        days: list[int] | None = None,
     ) -> None:
         table = "phase1_process_schedule_overrides" if period else "phase1_process_schedules"
-        params = (period, code, start_date, scheduled_time, json.dumps(months), interval_minutes, json.dumps(recipients, ensure_ascii=False), datetime.now().isoformat()) if period else (code, start_date, scheduled_time, json.dumps(months), interval_minutes, json.dumps(recipients, ensure_ascii=False), datetime.now().isoformat())
+        params = (period, code, start_date, scheduled_time, json.dumps(months), json.dumps(days or []), interval_minutes, deadline_date, notice_days, json.dumps(recipients, ensure_ascii=False), datetime.now().isoformat()) if period else (code, start_date, scheduled_time, json.dumps(months), json.dumps(days or []), interval_minutes, deadline_date, notice_days, json.dumps(recipients, ensure_ascii=False), datetime.now().isoformat())
         with self._connect() as conn:
             conn.execute(
                 f"""INSERT OR REPLACE INTO {table}
-                ({'period, ' if period else ''}process_code, start_date, scheduled_time, months, interval_minutes, recipients, channel, updated_at)
-                VALUES ({'?, ' if period else ''}?, ?, ?, ?, ?, ?, 'Teams', ?)""",
+                ({'period, ' if period else ''}process_code, start_date, scheduled_time, months, days, interval_minutes, deadline_date, notice_days, recipients, channel, updated_at)
+                VALUES ({'?, ' if period else ''}?, ?, ?, ?, ?, ?, ?, ?, ?, 'Teams', ?)""",
                 params,
             )
             conn.commit()
