@@ -19,8 +19,8 @@ class ConfiguracionAsistente:
     color_principal: str = "#185FA5"
     mensaje_bienvenida: str = "Hola, soy Giru, tu asistente."
     posicion: str = "derecha"
-    ancho_ventana_px: int = 380
-    alto_ventana_px: int = 520
+    ancho_ventana_px: int = 680
+    alto_ventana_px: int = 500
 
     def __post_init__(self) -> None:
         """Valida los valores que se utilizan para construir el CSS."""

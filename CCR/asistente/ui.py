@@ -8,13 +8,18 @@ import xml.etree.ElementTree as ET
 import streamlit as st
 
 from .config import ASISTENTE_ACTIVO, CONFIGURACION, RAIZ_CCR
-from .conexion import enviar_pregunta
+from .conexion import reiniciar_conversacion
+from .github_gemini import Respuesta
+from .router import PROVEEDOR_COPILOT, PROVEEDORES, enviar_pregunta
 
 logger = logging.getLogger(__name__)
 _FORMATOS_ICONO = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml", ".webp": "image/webp"}
-_HISTORIAL_KEY = "asistente_historial"
+_HISTORIAL_LEGACY_KEY = "asistente_historial"
+_PROVEEDOR_KEY = "asistente_proveedor"
+_HISTORIAL_PREFIX = "asistente_historial_por_proveedor"
 _ABIERTO_KEY = "asistente_abierto"
 _ERROR_KEY = "asistente_ultimo_error"
+_PREGUNTA_KEY = "asistente-texto-pregunta"
 
 
 def _leer_icono() -> str | None:
@@ -67,35 +72,116 @@ def _inyectar_estilos(icono_uri: str | None) -> None:
         transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,.27);
     }}
     .st-key-asistente-chat-panel {{
-        position:fixed !important; {horizontal}:20px; bottom:{config.tamano_icono_px + 36}px;
+        position:fixed !important; {horizontal}:20px;
+        top:max(76px, calc(100vh - {config.alto_ventana_px + config.tamano_icono_px + 36}px));
         z-index:10000; width:min({config.ancho_ventana_px}px, calc(100vw - 40px));
-        max-height:min({config.alto_ventana_px}px, calc(100vh - 120px));
-        overflow:hidden; box-sizing:border-box;
-        background-color:#E9EEF3 !important; color:#263442 !important;
-        opacity:1 !important; border:1px solid #AEBECD !important;
-        border-radius:14px; padding:.75rem;
-        box-shadow:0 12px 32px rgba(15,23,42,.34);
+        height:min({config.alto_ventana_px}px, calc(100vh - 176px));
+        overflow-x:hidden; overflow-y:auto; box-sizing:border-box;
+        background-color:#FFFFFF !important; color:#24292F !important;
+        opacity:1 !important; border:1px solid #D0D7DE !important;
+        border-radius:16px; padding:.65rem .8rem;
+        box-shadow:0 12px 32px rgba(15,23,42,.22);
     }}
     .st-key-asistente-chat-panel > div,
     .st-key-asistente-chat-panel [data-testid="stVerticalBlock"] {{
-        background-color:#E9EEF3 !important;
+        background-color:#FFFFFF !important;
     }}
-    .st-key-asistente-chat-panel [data-testid="stVerticalBlock"] {{gap:.45rem;}}
+    .st-key-asistente-chat-panel [data-testid="stVerticalBlock"] {{gap:.35rem;}}
     .st-key-asistente-chat-panel [data-testid="stHorizontalBlock"]:first-child {{
-        padding:.35rem .45rem; border-radius:9px;
-        background-color:#D5E0EB !important;
-        border-bottom:1px solid #AEBECD;
+        padding:.15rem .2rem .35rem; border-radius:0;
+        background-color:#FFFFFF !important;
+        border-bottom:1px solid #E5E7EB;
     }}
     .st-key-asistente-chat-panel [data-testid="stChatMessage"] {{
-        padding:.35rem .55rem; border-radius:10px;
-        background-color:#F8FAFC !important;
-        border:1px solid #D1DAE3;
+        padding:.3rem .5rem; border-radius:10px;
+        background-color:#FFFFFF !important;
+        border:1px solid #E5E7EB;
+        font-size:14px; line-height:1.45;
+    }}
+    .st-key-asistente-chat-panel [data-testid="stText"] {{
+        font-size:14px; line-height:1.45;
+    }}
+    .st-key-asistente-chat-panel [data-testid="stMarkdownContainer"] p {{
+        font-size:14px; line-height:1.45;
+    }}
+    .st-key-asistente-messages {{
+        height:100% !important; min-height:0 !important;
+    }}
+    .st-key-asistente-messages > div {{
+        height:100% !important;
+    }}
+    .st-key-asistente-chat-panel [data-testid="stLayoutWrapper"]:has(> .st-key-asistente-messages) {{
+        height:max(32px, min(300px, calc(100vh - 376px))) !important;
+        min-height:0 !important;
+        flex:0 0 max(32px, min(300px, calc(100vh - 376px))) !important;
+    }}
+    .st-key-asistente-composer {{
+        position:fixed !important; {horizontal}:32px;
+        bottom:{config.tamano_icono_px + 48}px;
+        z-index:10002; width:min({config.ancho_ventana_px - 24}px, calc(100vw - 64px));
+        box-sizing:border-box; padding:.35rem .45rem .25rem;
+        background:#FFFFFF !important;
+        border-top:1px solid #E5E7EB;
+        border-radius:0 0 12px 12px;
+        gap:.35rem !important;
+    }}
+    .st-key-asistente-composer [data-testid="stHorizontalBlock"] {{
+        flex-wrap:nowrap !important;
+    }}
+    .st-key-asistente-composer [data-testid="stHorizontalBlock"] [data-testid="stColumn"] {{
+        min-width:0 !important;
+    }}
+    .st-key-asistente-composer [data-testid="stTextInput"] input {{
+        font-size:13px; line-height:1.35; background:#FFFFFF;
+    }}
+    .st-key-asistente-composer [data-testid="stFormSubmitButton"] button {{
+        min-height:36px; width:36px; min-width:36px; padding:0;
+        border-radius:9px;
+    }}
+    .st-key-asistente-agent-picker [data-testid="stPopover"] > button {{
+        min-height:30px; width:auto; padding:0 .55rem;
+        border-radius:8px; font-size:12px; line-height:1;
+    }}
+    .st-key-asistente-agent-picker button {{
+        min-height:30px; padding:.2rem .5rem; font-size:12px;
+        white-space:nowrap;
+    }}
+    .st-key-asistente-agent-picker [data-testid="stButton"] button {{
+        min-height:32px; font-size:12px; white-space:nowrap;
+    }}
+    .st-key-asistente-chat-panel [data-testid="stButton"] button,
+    .st-key-asistente-chat-panel [data-testid="stFormSubmitButton"] button {{
+        min-height:36px; border-radius:9px; font-size:13px;
+    }}
+    .st-key-asistente-chat-panel [data-testid="stHorizontalBlock"]:first-child
+        [data-testid="stColumn"]:last-child [data-testid="stButton"] {{
+        display:flex; justify-content:flex-end;
+    }}
+    .st-key-asistente-chat-panel [data-testid="stHorizontalBlock"]:first-child
+        [data-testid="stButton"] button {{
+        min-height:30px; width:32px; min-width:32px; padding:0;
+    }}
+    .st-key-asistente-composer [data-testid="stHorizontalBlock"]
+        [data-testid="stColumn"]:last-child [data-testid="stFormSubmitButton"] {{
+        display:flex; justify-content:flex-end;
     }}
     @media (max-width:520px) {{
         .st-key-asistente-launcher {{ {horizontal}:16px; bottom:16px; }}
         .st-key-asistente-chat-panel {{
-            {horizontal}:12px; bottom:{config.tamano_icono_px + 28}px;
-            width:calc(100vw - 24px); max-height:calc(100vh - 112px);
+            {horizontal}:12px; top:max(68px, calc(100vh - {config.alto_ventana_px + config.tamano_icono_px + 28}px));
+            width:calc(100vw - 24px); height:min({config.alto_ventana_px}px, calc(100vh - 156px));
+            padding:.55rem;
+        }}
+        .st-key-asistente-messages {{
+            height:100% !important;
+        }}
+        .st-key-asistente-chat-panel [data-testid="stLayoutWrapper"]:has(> .st-key-asistente-messages) {{
+            height:max(32px, min(300px, calc(100vh - 360px))) !important;
+            flex:0 0 max(32px, min(300px, calc(100vh - 360px))) !important;
+        }}
+        .st-key-asistente-composer {{
+            {horizontal}:21px; bottom:{config.tamano_icono_px + 40}px;
+            width:calc(100vw - 42px); padding:.3rem .35rem .2rem;
         }}
     }}
     </style>
@@ -103,59 +189,161 @@ def _inyectar_estilos(icono_uri: str | None) -> None:
     st.markdown(css, unsafe_allow_html=True)
 
 
-def _inicializar_historial() -> None:
-    if _HISTORIAL_KEY not in st.session_state:
-        st.session_state[_HISTORIAL_KEY] = []
+def _clave_historial(proveedor: str) -> str:
+    sufijo = "copilot" if proveedor == PROVEEDOR_COPILOT else "gemini"
+    return f"{_HISTORIAL_PREFIX}_{sufijo}"
 
 
-def _agregar_mensaje(rol: str, contenido: str) -> None:
-    st.session_state[_HISTORIAL_KEY].append({"role": rol, "content": contenido})
+def _historial(proveedor: str) -> list[dict]:
+    clave = _clave_historial(proveedor)
+    if clave not in st.session_state:
+        if proveedor == PROVEEDOR_COPILOT and _HISTORIAL_LEGACY_KEY in st.session_state:
+            st.session_state[clave] = st.session_state.pop(_HISTORIAL_LEGACY_KEY)
+        else:
+            st.session_state[clave] = []
+    return st.session_state[clave]
+
+
+def _agregar_mensaje(
+    proveedor: str,
+    rol: str,
+    contenido: str,
+    fuentes: tuple = (),
+) -> None:
+    mensaje = {"role": rol, "content": contenido}
+    if fuentes:
+        mensaje["sources"] = [
+            {"title": fuente.titulo, "url": fuente.url}
+            for fuente in fuentes
+        ]
+    _historial(proveedor).append(mensaje)
 
 
 def _renderizar_conversacion() -> None:
-    _inicializar_historial()
+    if _PROVEEDOR_KEY not in st.session_state:
+        st.session_state[_PROVEEDOR_KEY] = PROVEEDOR_COPILOT
+    proveedor = st.session_state[_PROVEEDOR_KEY]
+    historial = _historial(proveedor)
     config = CONFIGURACION
     with st.container(key="asistente-chat-panel"):
-        header, clear = st.columns([4, 1], vertical_alignment="center")
+        header, clear = st.columns([20, 1], vertical_alignment="center")
         with header:
             st.markdown(f"**{config.nombre_asistente}**")
         with clear:
-            if st.button("Limpiar", key="asistente-limpiar", help="Limpiar conversación"):
-                st.session_state[_HISTORIAL_KEY] = []
+            if st.button(
+                " ",
+                key="asistente-limpiar",
+                help="Limpiar conversación",
+                icon=":material/delete_outline:",
+                type="tertiary",
+                width=32,
+            ):
+                historial.clear()
+                if proveedor == PROVEEDOR_COPILOT:
+                    reiniciar_conversacion()
 
-        if not st.session_state[_HISTORIAL_KEY]:
-            _agregar_mensaje("assistant", config.mensaje_bienvenida)
+        if not historial:
+            _agregar_mensaje(proveedor, "assistant", config.mensaje_bienvenida)
 
-        mensajes = st.container(height=300, border=False)
+        mensajes = st.container(height=324, border=False, key="asistente-messages")
         with mensajes:
-            for mensaje in st.session_state[_HISTORIAL_KEY]:
+            for indice, mensaje in enumerate(historial):
                 with st.chat_message(mensaje["role"], avatar=config.icono_respaldo if mensaje["role"] == "assistant" else None):
                     st.text(mensaje["content"])
+                    for fuente_indice, fuente in enumerate(mensaje.get("sources", [])):
+                        st.link_button(
+                            fuente["title"],
+                            fuente["url"],
+                            key=f"asistente-fuente-{proveedor}-{indice}-{fuente_indice}",
+                        )
 
         error = st.session_state.get(_ERROR_KEY)
         if error and st.button("Preguntar sobre el último error", key="asistente-preguntar-error"):
             pregunta = "Ayúdame a comprender el último error registrado."
-            _agregar_mensaje("user", pregunta)
-            _responder(pregunta, {"ultimo_error": error})
+            historial_previo = list(historial)
+            _agregar_mensaje(proveedor, "user", pregunta)
+            with mensajes:
+                _responder(proveedor, pregunta, {"ultimo_error": error}, historial_previo)
             st.rerun()
 
-        pregunta = st.chat_input("Escribe tu pregunta…", key="asistente-entrada", max_chars=1000)
-        if pregunta:
-            _agregar_mensaje("user", pregunta)
-            _responder(pregunta)
-            st.rerun()
+    with st.container(key="asistente-composer"):
+        with st.form("asistente-enviar-form", clear_on_submit=True):
+            entrada, envio = st.columns([1, 0.14], vertical_alignment="center")
+            with entrada:
+                pregunta = st.text_input(
+                    "Pregunta",
+                    key=_PREGUNTA_KEY,
+                    max_chars=1000,
+                    placeholder="Escribe tu pregunta…",
+                    label_visibility="collapsed",
+                )
+            with envio:
+                enviar = st.form_submit_button(
+                    " ",
+                    key="asistente-enviar",
+                    help="Enviar pregunta",
+                    icon=":material/send:",
+                    type="primary",
+                    width=36,
+                )
+
+        agente_actual = st.session_state[_PROVEEDOR_KEY]
+        with st.container(key="asistente-agent-picker"):
+            with st.popover(
+                "Agente",
+                help="Seleccionar agente",
+                icon=":material/keyboard_arrow_down:",
+                width="content",
+            ):
+                for agente in PROVEEDORES:
+                    if st.button(
+                        agente,
+                        key=f"asistente-agente-{agente.lower().replace(' ', '-')}",
+                        type="primary" if agente == agente_actual else "tertiary",
+                        use_container_width=True,
+                    ):
+                        st.session_state[_PROVEEDOR_KEY] = agente
+                        st.rerun()
+
+    if enviar and pregunta.strip():
+        historial_previo = list(historial)
+        _agregar_mensaje(proveedor, "user", pregunta)
+        with mensajes:
+            _responder(proveedor, pregunta, historial_previo=historial_previo)
+        st.rerun()
+    elif enviar:
+        st.info("Escribe una pregunta antes de enviar.")
 
 
-def _responder(pregunta: str, contexto: dict | None = None) -> None:
-    with st.spinner(f"{CONFIGURACION.nombre_asistente} está escribiendo…"):
-        respuesta = enviar_pregunta(pregunta, contexto)
-    _agregar_mensaje("assistant", respuesta)
+def _responder(
+    proveedor: str,
+    pregunta: str,
+    contexto: dict | None = None,
+    historial_previo: list[dict] | None = None,
+) -> None:
+    with st.chat_message("user"):
+        st.text(pregunta)
+    with st.chat_message("assistant", avatar=CONFIGURACION.icono_respaldo):
+        with st.spinner(f"{CONFIGURACION.nombre_asistente} está escribiendo…"):
+            respuesta = enviar_pregunta(
+                proveedor,
+                pregunta,
+                contexto,
+                [
+                    {"role": mensaje["role"], "content": mensaje["content"]}
+                    for mensaje in (historial_previo or [])[-6:]
+                    if mensaje.get("role") in {"user", "assistant"}
+                ],
+            )
+    if isinstance(respuesta, Respuesta):
+        _agregar_mensaje(proveedor, "assistant", respuesta.texto, respuesta.fuentes)
+    else:
+        _agregar_mensaje(proveedor, "assistant", respuesta)
 
 
 def _mostrar_asistente() -> None:
     icono_uri = _leer_icono()
     _inyectar_estilos(icono_uri)
-    _inicializar_historial()
     if _ABIERTO_KEY not in st.session_state:
         st.session_state[_ABIERTO_KEY] = False
 

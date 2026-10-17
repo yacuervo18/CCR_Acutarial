@@ -5,10 +5,20 @@ rentabilidades y reportes regulatorios.
 
 ## Ejecutar
 
+Para iniciar CCR junto con Motor F394, ejecuta `.\start.bat` desde la carpeta
+raíz. Si una de las dos aplicaciones ya está en ejecución, el script la conserva
+y solo inicia la que falte.
+
+Para iniciar únicamente CCR desde una terminal:
+
 ```powershell
 cd CCR
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
+
+El acceso **Abrir Motor F394** abre `http://127.0.0.1:8502`; por eso Motor F394
+debe estar iniciado. En su pantalla inicial se debe marcar **Conectado a la
+VPN** únicamente si el equipo ya está conectado a la VPN.
 
 La aplicación usa SQLite en `CCR/data/ccr.db`. En la primera ejecución crea
 automáticamente el periodo del mes actual y sus tareas por defecto. Los meses

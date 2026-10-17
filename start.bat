@@ -33,17 +33,29 @@ if not exist "%MOTOR_PYTHON%" (
     exit /b 1
 )
 
-echo Iniciando CCR en http://localhost:8501...
-start "CCR Streamlit" /min /d "%CCR_DIR%" "%CCR_PYTHON%" -m streamlit run app.py --server.headless true --server.port 8501
+echo Verificando CCR en http://localhost:8501...
+curl.exe --silent --fail --max-time 2 http://127.0.0.1:8501/_stcore/health >nul 2>&1
+if errorlevel 1 (
+    echo Iniciando CCR...
+    start "CCR Streamlit" /min /d "%CCR_DIR%" "%CCR_PYTHON%" -m streamlit run app.py --server.headless true --server.port 8501
+) else (
+    echo CCR ya esta iniciado.
+)
 
-echo Iniciando Motor F394 en http://127.0.0.1:8502...
-start "Motor F394 Streamlit" /min /d "%MOTOR_DIR%" "%MOTOR_PYTHON%" -m streamlit run app.py --server.headless true --server.port 8502
+echo Verificando Motor F394 en http://127.0.0.1:8502...
+curl.exe --silent --fail --max-time 2 http://127.0.0.1:8502/_stcore/health >nul 2>&1
+if errorlevel 1 (
+    echo Iniciando Motor F394...
+    start "Motor F394 Streamlit" /min /d "%MOTOR_DIR%" "%MOTOR_PYTHON%" -m streamlit run app.py --server.headless true --server.port 8502
+) else (
+    echo Motor F394 ya esta iniciado.
+)
 
 timeout /t 5 /nobreak >nul
 start "" http://localhost:8501
 
 echo.
-echo CCR y Motor F394 fueron iniciados.
+echo CCR y Motor F394 estan listos o iniciandose.
 echo CCR:       http://localhost:8501
 echo Motor F394: http://127.0.0.1:8502
 echo.

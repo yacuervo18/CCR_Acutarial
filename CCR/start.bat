@@ -61,6 +61,25 @@ echo.
 
 echo Iniciando CCR...
 echo ============================================================
-start "CCR Streamlit" /min .venv\Scripts\python.exe -m streamlit run app.py --server.headless true
+curl.exe --silent --fail --max-time 2 http://127.0.0.1:8501/_stcore/health >nul 2>&1
+if errorlevel 1 (
+    start "CCR Streamlit" /min .venv\Scripts\python.exe -m streamlit run app.py --server.headless true --server.port 8501
+) else (
+    echo CCR ya estaba iniciado.
+)
+
+set "MOTOR_DIR=%~dp0..\Motor_F394"
+set "MOTOR_PYTHON=%MOTOR_DIR%\.venv\Scripts\python.exe"
+if exist "%MOTOR_PYTHON%" (
+    curl.exe --silent --fail --max-time 2 http://127.0.0.1:8502/_stcore/health >nul 2>&1
+    if errorlevel 1 (
+        echo Iniciando Motor F394 en http://127.0.0.1:8502...
+        start "Motor F394 Streamlit" /min /d "%MOTOR_DIR%" "%MOTOR_PYTHON%" -m streamlit run app.py --server.headless true --server.port 8502
+    ) else (
+        echo Motor F394 ya estaba iniciado.
+    )
+) else (
+    echo AVISO: No se encontro Motor_F394\.venv. CCR funcionara, pero Motor F394 no se puede abrir.
+)
 timeout /t 3 /nobreak >nul
 start "" http://localhost:8501
