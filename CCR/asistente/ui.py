@@ -10,7 +10,7 @@ import streamlit as st
 from .config import ASISTENTE_ACTIVO, CONFIGURACION, RAIZ_CCR
 from .conexion import reiniciar_conversacion
 from .github_gemini import Respuesta
-from .router import PROVEEDOR_COPILOT, PROVEEDORES, enviar_pregunta
+from .router import PROVEEDOR_COPILOT, PROVEEDOR_GEMINI, PROVEEDORES, enviar_pregunta
 
 logger = logging.getLogger(__name__)
 _FORMATOS_ICONO = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml", ".webp": "image/webp"}
@@ -93,22 +93,29 @@ def _inyectar_estilos(icono_uri: str | None) -> None:
         border-bottom:1px solid #E5E7EB;
     }}
     .st-key-asistente-chat-panel [data-testid="stChatMessage"] {{
-        padding:.3rem .5rem; border-radius:10px;
+        margin:.25rem 0; padding:.45rem .6rem; border-radius:10px;
         background-color:#FFFFFF !important;
         border:1px solid #E5E7EB;
-        font-size:14px; line-height:1.45;
+        font-size:14px; line-height:1.6;
     }}
     .st-key-asistente-chat-panel [data-testid="stText"] {{
-        font-size:14px; line-height:1.45;
+        font-size:14px; line-height:1.6;
+    }}
+    .st-key-asistente-chat-panel [data-testid="stChatMessage"] [data-testid="stText"] pre {{
+        margin:0; font:inherit; line-height:1.6;
+        white-space:pre-wrap; overflow-wrap:anywhere;
     }}
     .st-key-asistente-chat-panel [data-testid="stMarkdownContainer"] p {{
-        font-size:14px; line-height:1.45;
+        font-size:14px; line-height:1.6;
     }}
     .st-key-asistente-messages {{
         height:100% !important; min-height:0 !important;
     }}
     .st-key-asistente-messages > div {{
-        height:100% !important; min-height:0 !important;
+        min-height:max-content !important;
+    }}
+    .st-key-asistente-messages [data-testid="stChatMessage"] {{
+        flex-shrink:0;
     }}
     .st-key-asistente-chat-panel [data-testid="stLayoutWrapper"]:has(> .st-key-asistente-messages) {{
         position:absolute !important; top:64px; right:.8rem; bottom:145px; left:.8rem;
@@ -142,6 +149,12 @@ def _inyectar_estilos(icono_uri: str | None) -> None:
     .st-key-asistente-agent-picker [data-testid="stPopover"] > button {{
         min-height:30px; width:auto; padding:0 .55rem;
         border-radius:8px; font-size:12px; line-height:1;
+    }}
+    .st-key-asistente-agent-picker [data-testid="stHorizontalBlock"] {{
+        flex-wrap:nowrap !important; align-items:center; gap:.4rem;
+    }}
+    .st-key-asistente-agent-picker [data-testid="stMarkdownContainer"] p {{
+        margin:0; font-size:12px; line-height:1.2; white-space:nowrap;
     }}
     .st-key-asistente-agent-picker button {{
         min-height:30px; padding:.2rem .5rem; font-size:12px;
@@ -188,6 +201,10 @@ def _inyectar_estilos(icono_uri: str | None) -> None:
 def _clave_historial(proveedor: str) -> str:
     sufijo = "copilot" if proveedor == PROVEEDOR_COPILOT else "gemini"
     return f"{_HISTORIAL_PREFIX}_{sufijo}"
+
+
+def _nombre_visible_agente(proveedor: str) -> str:
+    return "Giru" if proveedor == PROVEEDOR_GEMINI else proveedor
 
 
 def _historial(proveedor: str) -> list[dict]:
@@ -284,21 +301,27 @@ def _renderizar_conversacion() -> None:
 
             agente_actual = st.session_state[_PROVEEDOR_KEY]
             with st.container(key="asistente-agent-picker"):
-                with st.popover(
-                    "Agente",
-                    help="Seleccionar agente",
-                    icon=":material/keyboard_arrow_down:",
-                    width="content",
-                ):
-                    for agente in PROVEEDORES:
-                        if st.button(
-                            agente,
-                            key=f"asistente-agente-{agente.lower().replace(' ', '-')}",
-                            type="primary" if agente == agente_actual else "tertiary",
-                            use_container_width=True,
-                        ):
-                            st.session_state[_PROVEEDOR_KEY] = agente
-                            st.rerun()
+                selector, activo = st.columns([1, 1.8], vertical_alignment="center")
+                with selector:
+                    with st.popover(
+                        "Agente",
+                        help="Seleccionar agente",
+                        icon=":material/keyboard_arrow_down:",
+                        width="content",
+                    ):
+                        for agente in PROVEEDORES:
+                            if st.button(
+                                _nombre_visible_agente(agente),
+                                key=f"asistente-agente-{agente.lower().replace(' ', '-')}",
+                                type="primary" if agente == agente_actual else "tertiary",
+                                use_container_width=True,
+                            ):
+                                st.session_state[_PROVEEDOR_KEY] = agente
+                                st.rerun()
+                with activo:
+                    st.markdown(
+                        f"Responderá: **{_nombre_visible_agente(agente_actual)}**"
+                    )
 
     if enviar and pregunta.strip():
         historial_previo = list(historial)

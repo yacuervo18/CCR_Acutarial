@@ -171,6 +171,7 @@ def test_assistant_renders_without_interfering_with_streamlit():
     assert any(button.key == "asistente-enviar" for button in opened.button)
     assert any(button.key == "asistente-agente-copilot-studio" for button in opened.button)
     assert any(button.key == "asistente-agente-gemini" for button in opened.button)
+    assert any(button.label == "Giru" for button in opened.button)
 
 
 def test_selected_provider_persists_after_chat_submission(monkeypatch):
@@ -194,11 +195,19 @@ def test_selected_provider_persists_after_chat_submission(monkeypatch):
         if button.key == "asistente-agente-gemini"
     ).click().run()
     assert app.session_state["asistente_proveedor"] == "Gemini"
+    assert any(
+        element.value == "Responderá: **Giru**"
+        for element in app.markdown
+    )
     app.text_input[0].set_value("Pregunta de prueba")
     next(button for button in app.button if button.key == "asistente-enviar").click().run()
 
     assert not app.exception
     assert app.session_state["asistente_proveedor"] == "Gemini"
+    assert any(
+        element.value == "Responderá: **Giru**"
+        for element in app.markdown
+    )
     assert any(button.key == "asistente-enviar" for button in app.button)
     app.text_input[0].set_value("Pregunta de seguimiento")
     next(button for button in app.button if button.key == "asistente-enviar").click().run()

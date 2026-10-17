@@ -28,11 +28,13 @@ Para desactivar por completo el asistente, cambie `ASISTENTE_ACTIVO` a `False`.
 
 1. Abre Giru con el botón flotante de la esquina inferior derecha.
 2. Escribe la consulta junto al icono de envío y pulsa **Enter** o el icono.
-3. Pulsa **Agente** para elegir **Copilot Studio** o **Gemini**.
+3. Pulsa **Agente** para elegir **Copilot Studio** o **Giru**.
 
 El compositor permanece visible en la parte inferior del panel. La selección se
 conserva después de enviar una pregunta y cada proveedor mantiene su conversación.
-La pregunta aparece en el historial mientras Giru procesa la respuesta.
+Junto al selector aparece el agente elegido. En la interfaz, **Giru** es el nombre
+visible del proveedor Gemini. La pregunta aparece en el historial mientras Giru
+procesa la respuesta.
 
 ## Configurar Copilot Studio por Direct Line
 
