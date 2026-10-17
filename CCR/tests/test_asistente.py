@@ -1,4 +1,5 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 import streamlit as st
@@ -205,7 +206,48 @@ def test_selected_provider_persists_after_chat_submission(monkeypatch):
     assert not app.exception
     assert app.session_state["asistente_proveedor"] == "Gemini"
     assert providers == ["Gemini", "Gemini"]
+    assert any(field.key == ui._PREGUNTA_KEY for field in app.text_input)
+    assert any(button.key == "asistente-enviar" for button in app.button)
 
+
+def test_composer_remains_after_sourced_gemini_answers(monkeypatch):
+    source = SimpleNamespace(
+        titulo="manual.md",
+        url="https://example.com/manual.md",
+    )
+    provider_calls = []
+
+    def answer_with_source(*args, **kwargs):
+        provider_calls.append(args)
+        return ui.Respuesta(
+            "Respuesta respaldada por el documento [1].",
+            (source,),
+        )
+
+    monkeypatch.setattr(ui, "enviar_pregunta", answer_with_source)
+    app = AppTest.from_string(
+        "from asistente.ui import mostrar_asistente\nmostrar_asistente()"
+    ).run()
+    app.button[0].click().run()
+    next(
+        button for button in app.button
+        if button.key == "asistente-agente-gemini"
+    ).click().run()
+    app.text_input[0].set_value("Consulta con fuentes")
+    app = next(button for button in app.button if button.key == "asistente-enviar").click().run()
+
+    assert not app.exception
+    assert any(field.key == ui._PREGUNTA_KEY for field in app.text_input)
+    assert any(button.key == "asistente-enviar" for button in app.button)
+    assert any("Consulta con fuentes" in element.value for element in app.text)
+
+    app.text_input[0].set_value("Contrapregunta con fuentes")
+    app = next(button for button in app.button if button.key == "asistente-enviar").click().run()
+
+    assert not app.exception
+    assert len(provider_calls) == 2
+    assert any(field.key == ui._PREGUNTA_KEY for field in app.text_input)
+    assert any(button.key == "asistente-enviar" for button in app.button)
 
 def test_question_is_rendered_while_provider_is_still_processing(monkeypatch):
     def keep_waiting(*args, **kwargs):

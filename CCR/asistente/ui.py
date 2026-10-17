@@ -76,7 +76,7 @@ def _inyectar_estilos(icono_uri: str | None) -> None:
         top:max(76px, calc(100vh - {config.alto_ventana_px + config.tamano_icono_px + 36}px));
         z-index:10000; width:min({config.ancho_ventana_px}px, calc(100vw - 40px));
         height:min({config.alto_ventana_px}px, calc(100vh - 176px));
-        overflow-x:hidden; overflow-y:auto; box-sizing:border-box;
+        overflow:visible; box-sizing:border-box;
         background-color:#FFFFFF !important; color:#24292F !important;
         opacity:1 !important; border:1px solid #D0D7DE !important;
         border-radius:16px; padding:.65rem .8rem;
@@ -108,18 +108,19 @@ def _inyectar_estilos(icono_uri: str | None) -> None:
         height:100% !important; min-height:0 !important;
     }}
     .st-key-asistente-messages > div {{
-        height:100% !important;
+        height:100% !important; min-height:0 !important;
     }}
     .st-key-asistente-chat-panel [data-testid="stLayoutWrapper"]:has(> .st-key-asistente-messages) {{
-        height:max(32px, min(300px, calc(100vh - 376px))) !important;
-        min-height:0 !important;
-        flex:0 0 max(32px, min(300px, calc(100vh - 376px))) !important;
+        position:absolute !important; top:64px; right:.8rem; bottom:145px; left:.8rem;
+        width:auto !important; height:auto !important; min-height:0 !important;
+    }}
+    .st-key-asistente-chat-panel [data-testid="stLayoutWrapper"]:has(> .st-key-asistente-composer) {{
+        position:absolute !important; right:.8rem; bottom:.65rem; left:.8rem;
+        z-index:2; width:auto !important; min-height:0 !important;
     }}
     .st-key-asistente-composer {{
-        position:fixed !important; {horizontal}:32px;
-        bottom:{config.tamano_icono_px + 48}px;
-        z-index:10002; width:min({config.ancho_ventana_px - 24}px, calc(100vw - 64px));
-        box-sizing:border-box; padding:.35rem .45rem .25rem;
+        position:relative !important;
+        width:100%; box-sizing:border-box; padding:.35rem .45rem .25rem;
         background:#FFFFFF !important;
         border-top:1px solid #E5E7EB;
         border-radius:0 0 12px 12px;
@@ -175,13 +176,8 @@ def _inyectar_estilos(icono_uri: str | None) -> None:
         .st-key-asistente-messages {{
             height:100% !important;
         }}
-        .st-key-asistente-chat-panel [data-testid="stLayoutWrapper"]:has(> .st-key-asistente-messages) {{
-            height:max(32px, min(300px, calc(100vh - 360px))) !important;
-            flex:0 0 max(32px, min(300px, calc(100vh - 360px))) !important;
-        }}
         .st-key-asistente-composer {{
-            {horizontal}:21px; bottom:{config.tamano_icono_px + 40}px;
-            width:calc(100vw - 42px); padding:.3rem .35rem .2rem;
+            padding:.3rem .35rem .2rem;
         }}
     }}
     </style>
@@ -254,7 +250,6 @@ def _renderizar_conversacion() -> None:
                         st.link_button(
                             fuente["title"],
                             fuente["url"],
-                            key=f"asistente-fuente-{proveedor}-{indice}-{fuente_indice}",
                         )
 
         error = st.session_state.get(_ERROR_KEY)
@@ -266,44 +261,44 @@ def _renderizar_conversacion() -> None:
                 _responder(proveedor, pregunta, {"ultimo_error": error}, historial_previo)
             st.rerun()
 
-    with st.container(key="asistente-composer"):
-        with st.form("asistente-enviar-form", clear_on_submit=True):
-            entrada, envio = st.columns([1, 0.14], vertical_alignment="center")
-            with entrada:
-                pregunta = st.text_input(
-                    "Pregunta",
-                    key=_PREGUNTA_KEY,
-                    max_chars=1000,
-                    placeholder="Escribe tu pregunta…",
-                    label_visibility="collapsed",
-                )
-            with envio:
-                enviar = st.form_submit_button(
-                    " ",
-                    key="asistente-enviar",
-                    help="Enviar pregunta",
-                    icon=":material/send:",
-                    type="primary",
-                    width=36,
-                )
+        with st.container(key="asistente-composer"):
+            with st.form("asistente-enviar-form", clear_on_submit=True):
+                entrada, envio = st.columns([1, 0.14], vertical_alignment="center")
+                with entrada:
+                    pregunta = st.text_input(
+                        "Pregunta",
+                        key=_PREGUNTA_KEY,
+                        max_chars=1000,
+                        placeholder="Escribe tu pregunta…",
+                        label_visibility="collapsed",
+                    )
+                with envio:
+                    enviar = st.form_submit_button(
+                        " ",
+                        key="asistente-enviar",
+                        help="Enviar pregunta",
+                        icon=":material/send:",
+                        type="primary",
+                        width=36,
+                    )
 
-        agente_actual = st.session_state[_PROVEEDOR_KEY]
-        with st.container(key="asistente-agent-picker"):
-            with st.popover(
-                "Agente",
-                help="Seleccionar agente",
-                icon=":material/keyboard_arrow_down:",
-                width="content",
-            ):
-                for agente in PROVEEDORES:
-                    if st.button(
-                        agente,
-                        key=f"asistente-agente-{agente.lower().replace(' ', '-')}",
-                        type="primary" if agente == agente_actual else "tertiary",
-                        use_container_width=True,
-                    ):
-                        st.session_state[_PROVEEDOR_KEY] = agente
-                        st.rerun()
+            agente_actual = st.session_state[_PROVEEDOR_KEY]
+            with st.container(key="asistente-agent-picker"):
+                with st.popover(
+                    "Agente",
+                    help="Seleccionar agente",
+                    icon=":material/keyboard_arrow_down:",
+                    width="content",
+                ):
+                    for agente in PROVEEDORES:
+                        if st.button(
+                            agente,
+                            key=f"asistente-agente-{agente.lower().replace(' ', '-')}",
+                            type="primary" if agente == agente_actual else "tertiary",
+                            use_container_width=True,
+                        ):
+                            st.session_state[_PROVEEDOR_KEY] = agente
+                            st.rerun()
 
     if enviar and pregunta.strip():
         historial_previo = list(historial)
