@@ -36,6 +36,16 @@ Junto al selector aparece el agente elegido. En la interfaz, **Giru** es el nomb
 visible del proveedor Gemini. La pregunta aparece en el historial mientras Giru
 procesa la respuesta.
 
+## Solicitudes de procesos desde Giru
+
+Con **Giru** seleccionado, las órdenes explícitas de Rentabilidades e Índices y
+monedas se relacionan con los mismos identificadores de operación que usan los
+paneles de esas pantallas. Giru muestra qué entendió y pide confirmación. En la
+fase actual no hay manejadores operativos registrados: confirmar informa que la
+acción sigue pendiente y no inicia scraping, copia de contenido, envío de correo
+ni cambios en OSIRIS o archivos. Las órdenes con **Copilot Studio** continúan por
+su ruta conversacional actual y no se interceptan como operaciones locales.
+
 ## Configurar Copilot Studio por Direct Line
 
 1. En la configuración de seguridad del canal web de Copilot Studio, usa uno

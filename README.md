@@ -70,6 +70,18 @@ amarillo definido para esa integración. Estos cambios son exclusivamente
 visuales y no alteran la base SQLite, la programación, el estado de las tareas
 ni la lógica operativa del Motor F394.
 
+## Preparación de acciones mensuales
+
+Las pantallas de Rentabilidades e Índices y monedas muestran un panel de acciones
+junto a sus tareas. Giru reconoce órdenes explícitas para esas mismas acciones;
+los botones y el chat comparten identificadores, periodo, solicitud y punto de
+confirmación. Confirmar en esta fase informa que la operación aún no está
+implementada: no ejecuta extracción, no prepara ni
+envía correos, y no modifica OSIRIS ni archivos. “Actualizar archivos” permanece
+deshabilitado por permisos. Los campos de la futura tabla de índices y monedas
+se definirán antes de implementar la extracción. Copilot Studio conserva su
+enrutamiento actual y no intercepta estas órdenes.
+
 ## Fase 2: contenidos en modo lectura
 
 Cada proceso tiene una carpeta de contenido bajo `CCR/content/<codigo>/`.

@@ -11,6 +11,15 @@ from .config import ASISTENTE_ACTIVO, CONFIGURACION, RAIZ_CCR
 from .conexion import reiniciar_conversacion
 from .github_gemini import Respuesta
 from .router import PROVEEDOR_COPILOT, PROVEEDOR_GEMINI, PROVEEDORES, enviar_pregunta
+from src.phase1.process_operation_contract import (
+    PROCESS_OPERATION_BY_ID,
+    reconocer_operacion,
+)
+from src.ui.process_operations import (
+    get_pending_process_operation,
+    render_operation_confirmation,
+    request_process_operation,
+)
 
 logger = logging.getLogger(__name__)
 _FORMATOS_ICONO = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml", ".webp": "image/webp"}
@@ -232,7 +241,10 @@ def _agregar_mensaje(
     _historial(proveedor).append(mensaje)
 
 
-def _renderizar_conversacion() -> None:
+def _renderizar_conversacion(
+    period: str | None = None,
+    readonly: bool = False,
+) -> None:
     if _PROVEEDOR_KEY not in st.session_state:
         st.session_state[_PROVEEDOR_KEY] = PROVEEDOR_COPILOT
     proveedor = st.session_state[_PROVEEDOR_KEY]
@@ -268,6 +280,18 @@ def _renderizar_conversacion() -> None:
                             fuente["title"],
                             fuente["url"],
                         )
+            resultado_operacion = render_operation_confirmation(
+                "giru",
+                period,
+                readonly,
+            )
+            if resultado_operacion is not None:
+                _agregar_mensaje(
+                    proveedor,
+                    "assistant",
+                    resultado_operacion.message,
+                )
+                st.rerun()
 
         error = st.session_state.get(_ERROR_KEY)
         if error and st.button("Preguntar sobre el último error", key="asistente-preguntar-error"):
@@ -324,10 +348,70 @@ def _renderizar_conversacion() -> None:
                     )
 
     if enviar and pregunta.strip():
-        historial_previo = list(historial)
-        _agregar_mensaje(proveedor, "user", pregunta)
-        with mensajes:
-            _responder(proveedor, pregunta, historial_previo=historial_previo)
+        operation = (
+            reconocer_operacion(pregunta)
+            if proveedor == PROVEEDOR_GEMINI
+            else None
+        )
+        if operation is not None:
+            _agregar_mensaje(proveedor, "user", pregunta)
+            if not operation.requestable:
+                _agregar_mensaje(
+                    proveedor,
+                    "assistant",
+                    operation.unavailable_message,
+                )
+            elif readonly:
+                _agregar_mensaje(
+                    proveedor,
+                    "assistant",
+                    "El periodo seleccionado es de solo lectura; no se registró "
+                    "ninguna solicitud operativa.",
+                )
+            elif period is None:
+                _agregar_mensaje(
+                    proveedor,
+                    "assistant",
+                    "No pude asociar la solicitud a un periodo. No se inició "
+                    "ninguna operación.",
+                )
+            else:
+                request = request_process_operation(
+                    operation.identifier,
+                    "giru",
+                    period,
+                )
+                if request is None:
+                    pending = get_pending_process_operation()
+                    pending_operation = (
+                        PROCESS_OPERATION_BY_ID[pending["operation_id"]]
+                        if pending
+                        else None
+                    )
+                    pending_label = (
+                        pending_operation.label
+                        if pending_operation
+                        else "otra operación"
+                    )
+                    _agregar_mensaje(
+                        proveedor,
+                        "assistant",
+                        "Ya hay una solicitud pendiente de confirmación "
+                        f"({pending_label}). Confírmala o cancélala antes de "
+                        "iniciar otra.",
+                    )
+                else:
+                    _agregar_mensaje(
+                        proveedor,
+                        "assistant",
+                        f"Entendí que solicitas «{operation.label}». "
+                        f"{operation.confirmation_prompt}",
+                    )
+        else:
+            historial_previo = list(historial)
+            _agregar_mensaje(proveedor, "user", pregunta)
+            with mensajes:
+                _responder(proveedor, pregunta, historial_previo=historial_previo)
         st.rerun()
     elif enviar:
         st.info("Escribe una pregunta antes de enviar.")
@@ -359,7 +443,10 @@ def _responder(
         _agregar_mensaje(proveedor, "assistant", respuesta)
 
 
-def _mostrar_asistente() -> None:
+def _mostrar_asistente(
+    period: str | None = None,
+    readonly: bool = False,
+) -> None:
     icono_uri = _leer_icono()
     _inyectar_estilos(icono_uri)
     if _ABIERTO_KEY not in st.session_state:
@@ -377,15 +464,18 @@ def _mostrar_asistente() -> None:
             st.session_state[_ABIERTO_KEY] = not estaba_abierto
 
     if st.session_state[_ABIERTO_KEY]:
-        _renderizar_conversacion()
+        _renderizar_conversacion(period, readonly)
 
 
-def mostrar_asistente() -> None:
+def mostrar_asistente(
+    period: str | None = None,
+    readonly: bool = False,
+) -> None:
     """Muestra el asistente; los fallos internos no deben interrumpir CCR."""
     if not ASISTENTE_ACTIVO:
         return
     try:
-        _mostrar_asistente()
+        _mostrar_asistente(period, readonly)
     except Exception:
         logger.exception("No se pudo renderizar el asistente de CCR.")
         st.caption("El asistente no está disponible temporalmente.")

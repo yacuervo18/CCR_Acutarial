@@ -8,8 +8,9 @@ PROVEEDOR_GEMINI = "Gemini"
 PROVEEDORES = (PROVEEDOR_COPILOT, PROVEEDOR_GEMINI)
 
 _MENSAJE_PERMISOS_COPILOT = (
-    "Aún no tenemos los permisos que permiten el uso de este agente como asistente. "
-    "Utiliza Gemini."
+    "Aún no tenemos los permisos para utilizar Microsoft 365 Copilot, pero no te "
+    "preocupes: haz clic en Agente y cambia a Giru. Giru es un agente diseñado y "
+    "desarrollado para ayudarte a gestionar tareas del área."
 )
 
 

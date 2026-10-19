@@ -15,6 +15,11 @@ from src.phase1.notifications import NotificationService, parse_destinatarios
 from src.phase1.repository import Repository
 from src.phase1.service import ProcessService
 from src.phase1.status_export import export_status
+from src.ui.process_operations import (
+    PROCESS_OPERATION_PANELS,
+    render_process_operations,
+    render_process_operation_workflow,
+)
 
 page_icon_path = Path(__file__).resolve().parents[1] / "Icono_Sura.png"
 
@@ -494,6 +499,14 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
         with extension_column:
             st.subheader("Espacio del proceso")
             render_process_extension(code)
+    elif code in PROCESS_OPERATION_PANELS:
+        tasks_column, actions_column = st.columns([1, 1], gap="large")
+        with tasks_column:
+            render_task_management(code, readonly, editor_enabled)
+            render_process_tasks(process, period, code, readonly)
+        with actions_column:
+            st.subheader("Espacio del proceso")
+            render_process_operations(code, readonly, period)
     else:
         render_task_management(code, readonly, editor_enabled)
         render_process_tasks(process, period, code, readonly)
@@ -627,9 +640,17 @@ else:
 
 render_progress(selected_period)
 editor_enabled = render_editor_access()
+active_process_code = None
+selected_readonly = selected_period != period_default
 if selected == "TABLERO":
     render_dashboard(selected_period, reminders)
 else:
-    render_process(selected_period, next(p.codigo for p in PROCESOS if p.nombre.upper() == selected), readonly=selected_period != period_default)
+    active_process_code = next(p.codigo for p in PROCESOS if p.nombre.upper() == selected)
+    render_process(selected_period, active_process_code, readonly=selected_readonly)
 export_status(service, selected_period)
-mostrar_asistente()
+render_process_operation_workflow(
+    active_process_code,
+    selected_period,
+    selected_readonly,
+)
+mostrar_asistente(selected_period, selected_readonly)

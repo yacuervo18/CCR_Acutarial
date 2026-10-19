@@ -258,6 +258,84 @@ def test_composer_remains_after_sourced_gemini_answers(monkeypatch):
     assert any(field.key == ui._PREGUNTA_KEY for field in app.text_input)
     assert any(button.key == "asistente-enviar" for button in app.button)
 
+
+def test_giru_process_command_requires_confirmation_and_does_not_call_provider(monkeypatch):
+    provider_calls = []
+    monkeypatch.setattr(
+        ui,
+        "enviar_pregunta",
+        lambda *args, **kwargs: provider_calls.append(args),
+    )
+    app = AppTest.from_string(
+        "from asistente.ui import mostrar_asistente\n"
+        "mostrar_asistente('2026-10')"
+    ).run()
+    app.button[0].click().run()
+    next(
+        button for button in app.button
+        if button.key == "asistente-agente-gemini"
+    ).click().run()
+    app.text_input[0].set_value("Actualízame las rentabilidades, por favor.")
+    app = next(
+        button for button in app.button
+        if button.key == "asistente-enviar"
+    ).click().run()
+
+    assert not app.exception
+    assert provider_calls == []
+    assert any(
+        "Entendí que solicitas" in element.value
+        for element in app.text
+    )
+    assert any(
+        button.label == "Confirmar solicitud"
+        for button in app.button
+    )
+    assert (
+        app.session_state["ccr_pending_process_operation"]["operation_id"]
+        == "rentabilidades.actualizar"
+    )
+
+    app = next(
+        button for button in app.button
+        if button.label == "Confirmar solicitud"
+    ).click().run()
+
+    assert not app.exception
+    assert provider_calls == []
+    assert "ccr_pending_process_operation" not in app.session_state
+    assert any(
+        "no se ejecutó ninguna acción" in element.value
+        for element in app.text
+    )
+
+
+def test_copilot_keeps_its_existing_route_for_process_commands(monkeypatch):
+    provider_calls = []
+    monkeypatch.setattr(
+        ui,
+        "enviar_pregunta",
+        lambda *args, **kwargs: (
+            provider_calls.append(args) or "Respuesta de Copilot"
+        ),
+    )
+    app = AppTest.from_string(
+        "from asistente.ui import mostrar_asistente\n"
+        "mostrar_asistente('2026-10')"
+    ).run()
+    app.button[0].click().run()
+    app.text_input[0].set_value("actualiza las rentabilidades")
+    app = next(
+        button for button in app.button
+        if button.key == "asistente-enviar"
+    ).click().run()
+
+    assert not app.exception
+    assert len(provider_calls) == 1
+    assert provider_calls[0][0] == "Copilot Studio"
+    assert "ccr_pending_process_operation" not in app.session_state
+
+
 def test_question_is_rendered_while_provider_is_still_processing(monkeypatch):
     def keep_waiting(*args, **kwargs):
         ui.st.stop()

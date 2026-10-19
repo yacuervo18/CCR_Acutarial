@@ -163,8 +163,9 @@ def test_copilot_authentication_error_shows_expected_message_without_fallback(mo
     answer = router.enviar_pregunta("Copilot Studio", "Ayuda")
 
     assert answer == (
-        "Aún no tenemos los permisos que permiten el uso de este agente como asistente. "
-        "Utiliza Gemini."
+        "Aún no tenemos los permisos para utilizar Microsoft 365 Copilot, pero no te "
+        "preocupes: haz clic en Agente y cambia a Giru. Giru es un agente diseñado y "
+        "desarrollado para ayudarte a gestionar tareas del área."
     )
     assert gemini_called is False
 
