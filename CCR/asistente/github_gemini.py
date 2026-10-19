@@ -9,6 +9,8 @@ from urllib.parse import quote, urlsplit
 import requests
 import streamlit as st
 
+from .http_transport import session_with_system_trust
+
 logger = logging.getLogger(__name__)
 
 _GITHUB_API = "https://api.github.com"
@@ -158,12 +160,13 @@ def _solicitar_arbol(configuracion: _Configuracion) -> list[dict[str, object]]:
     rama = quote(configuracion.rama, safe="")
     url = f"{_GITHUB_API}/repos/{configuracion.repositorio}/git/trees/{rama}"
     try:
-        respuesta = requests.get(
-            url,
-            headers=_github_headers(configuracion),
-            params={"recursive": "1"},
-            timeout=_REQUEST_TIMEOUT,
-        )
+        with session_with_system_trust() as sesion:
+            respuesta = sesion.get(
+                url,
+                headers=_github_headers(configuracion),
+                params={"recursive": "1"},
+                timeout=_REQUEST_TIMEOUT,
+            )
         respuesta.raise_for_status()
         datos = respuesta.json()
     except requests.HTTPError as error:
@@ -227,12 +230,13 @@ def _leer_documento(
     ruta_api = quote(ruta, safe="/")
     url = f"{_GITHUB_API}/repos/{repositorio}/contents/{ruta_api}"
     try:
-        respuesta = requests.get(
-            url,
-            headers=_github_headers(configuracion, raw=True),
-            params={"ref": configuracion.rama},
-            timeout=_REQUEST_TIMEOUT,
-        )
+        with session_with_system_trust() as sesion:
+            respuesta = sesion.get(
+                url,
+                headers=_github_headers(configuracion, raw=True),
+                params={"ref": configuracion.rama},
+                timeout=_REQUEST_TIMEOUT,
+            )
         respuesta.raise_for_status()
         contenido = respuesta.content
         texto = contenido.decode("utf-8")
@@ -413,15 +417,16 @@ def _generar_respuesta(
         "generationConfig": {"temperature": 0.2, "maxOutputTokens": 800},
     }
     try:
-        respuesta = requests.post(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": configuracion.clave_gemini,
-            },
-            json=payload,
-            timeout=_REQUEST_TIMEOUT,
-        )
+        with session_with_system_trust() as sesion:
+            respuesta = sesion.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": configuracion.clave_gemini,
+                },
+                json=payload,
+                timeout=_REQUEST_TIMEOUT,
+            )
         respuesta.raise_for_status()
         datos = respuesta.json()
     except requests.HTTPError as error:

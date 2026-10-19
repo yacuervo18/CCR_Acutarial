@@ -9,6 +9,8 @@ from uuid import uuid4
 import requests
 import streamlit as st
 
+from .http_transport import session_with_system_trust
+
 logger = logging.getLogger(__name__)
 
 _SESSION_KEY = "asistente_direct_line"
@@ -79,14 +81,15 @@ def _solicitar_json(
 ) -> dict[str, object]:
     """Realiza una solicitud REST sin registrar ni exponer credenciales."""
     try:
-        respuesta = requests.request(
-            metodo,
-            f"{configuracion.endpoint}{_API_PATH}{ruta}",
-            headers={"Authorization": f"Bearer {credencial}"},
-            json=contenido,
-            params=parametros,
-            timeout=_REQUEST_TIMEOUT,
-        )
+        with session_with_system_trust() as sesion:
+            respuesta = sesion.request(
+                metodo,
+                f"{configuracion.endpoint}{_API_PATH}{ruta}",
+                headers={"Authorization": f"Bearer {credencial}"},
+                json=contenido,
+                params=parametros,
+                timeout=_REQUEST_TIMEOUT,
+            )
         respuesta.raise_for_status()
         resultado = respuesta.json()
     except requests.HTTPError as error:

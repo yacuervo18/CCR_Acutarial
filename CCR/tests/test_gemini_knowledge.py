@@ -44,6 +44,72 @@ def test_github_headers_use_the_configured_read_token():
     assert raw_headers["Accept"] == "application/vnd.github.raw+json"
 
 
+def test_github_tree_and_documents_use_the_verified_system_trust_session(monkeypatch):
+    configuracion = github_gemini._Configuracion(
+        repositorio="example/manuales",
+        rama="main",
+        carpeta="documentos",
+        token_github="github-read-only-test",
+        clave_gemini="gemini-test",
+        modelo_gemini="gemini-test-model",
+    )
+    requests_made = []
+    sessions_created = []
+    responses = [
+        {
+            "data": {
+                "tree": [
+                    {
+                        "type": "blob",
+                        "path": "documentos/guia.md",
+                        "size": 11,
+                    }
+                ]
+            }
+        },
+        {"content": b"contenido"},
+    ]
+
+    class Response:
+        def __init__(self, data=None, content=b""):
+            self._data = data
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._data
+
+    class Session:
+        def __enter__(self):
+            sessions_created.append(self)
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, **kwargs):
+            requests_made.append((url, kwargs))
+            return Response(**responses.pop(0))
+
+    monkeypatch.setattr(
+        github_gemini,
+        "session_with_system_trust",
+        Session,
+    )
+
+    tree = github_gemini._solicitar_arbol(configuracion)
+    path, content = github_gemini._leer_documento(configuracion, tree[0])
+
+    assert len(sessions_created) == 2
+    assert len(requests_made) == 2
+    assert path == "documentos/guia.md"
+    assert content == "contenido"
+    assert requests_made[0][1]["headers"]["Authorization"] == "Bearer github-read-only-test"
+    assert requests_made[1][1]["headers"]["Accept"] == "application/vnd.github.raw+json"
+
+
 def test_document_search_prefers_fragment_matching_question():
     fragments = [
         github_gemini._Fragmento(
@@ -123,12 +189,12 @@ def test_gemini_request_keeps_api_key_in_header_and_returns_sources(monkeypatch)
                 ]
             }
 
-    def post(url, **kwargs):
+    def post(session, url, **kwargs):
         captured["url"] = url
         captured.update(kwargs)
         return Response()
 
-    monkeypatch.setattr(github_gemini.requests, "post", post)
+    monkeypatch.setattr(github_gemini.requests.Session, "post", post)
     monkeypatch.setattr(
         github_gemini,
         "_leer_configuracion",

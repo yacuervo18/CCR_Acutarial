@@ -3,6 +3,8 @@
 El asistente es un módulo independiente con dos proveedores: Copilot Studio por
 Direct Line y Gemini para consultas documentales sobre un repositorio privado de
 GitHub. Las credenciales se leen en el servidor y nunca se envían al navegador.
+Las llamadas a Direct Line, GitHub y Gemini validan HTTPS con los certificados
+de confianza del sistema operativo; no desactivan la verificación TLS.
 
 ## Cambiar el icono
 

@@ -1,4 +1,5 @@
 from dataclasses import replace
+import ssl
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,7 @@ from streamlit.testing.v1 import AppTest
 
 from asistente.config import CONFIGURACION, ConfiguracionAsistente
 from asistente import conexion
+from asistente.http_transport import SystemTrustStoreAdapter
 from asistente.errores import registrar_error
 from asistente import ui
 
@@ -89,11 +91,11 @@ def test_direct_line_request_sends_authorization_and_uses_server_endpoint(monkey
         def json(self):
             return {"ok": True}
 
-    def solicitar(metodo, url, **kwargs):
+    def solicitar(sesion, metodo, url, **kwargs):
         solicitud.update(metodo=metodo, url=url, **kwargs)
         return Respuesta()
 
-    monkeypatch.setattr(conexion.requests, "request", solicitar)
+    monkeypatch.setattr(conexion.requests.Session, "request", solicitar)
     resultado = conexion._solicitar_json(
         configuracion,
         "GET",
@@ -104,6 +106,13 @@ def test_direct_line_request_sends_authorization_and_uses_server_endpoint(monkey
     assert resultado == {"ok": True}
     assert solicitud["url"] == "https://directline.example/v3/directline/conversations"
     assert solicitud["headers"]["Authorization"] == "Bearer token-de-prueba"
+
+
+def test_direct_line_system_trust_adapter_keeps_tls_verification_enabled():
+    adapter = SystemTrustStoreAdapter()
+
+    assert adapter._ssl_context.verify_mode == ssl.CERT_REQUIRED
+    assert adapter._ssl_context.check_hostname is True
 
 
 def test_enviar_pregunta_handles_empty_text():
