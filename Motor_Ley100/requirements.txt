@@ -1,0 +1,22 @@
+# requirements.txt - Motor Ley 100
+# Python de referencia: 3.14
+# Versiones tomadas del entorno donde corre motor_Ley100.ipynb, salvo pandas:
+# el notebook asigna texto a columnas numericas con .loc, lo que pandas 3.x
+# rechaza (TypeError). Se usa pandas 2.3.3, la 2.x mas reciente con soporte de Python 3.14.
+# Instalar con: pip install -r requirements.txt
+
+# Calculo
+numpy==2.5.3
+pandas==2.3.3
+joblib==1.6.0
+python-dateutil==2.9.0.post0
+openpyxl==3.1.5
+et_xmlfile==2.0.0
+tzdata==2026.5
+six==1.17.0
+
+# Requerido por engine='pyarrow' en pd.read_csv (no aparecia en el pip freeze)
+pyarrow==25.0.1
+
+# Interfaz web
+streamlit==1.63.0

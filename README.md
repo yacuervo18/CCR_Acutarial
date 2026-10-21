@@ -5,9 +5,10 @@ rentabilidades y reportes regulatorios.
 
 ## Ejecutar
 
-Para iniciar CCR junto con Motor F394, ejecuta `.\start.bat` desde la carpeta
-raíz. Si una de las dos aplicaciones ya está en ejecución, el script la conserva
-y solo inicia la que falte.
+Para iniciar CCR junto con Motor F394 y Motor Ley 100, ejecuta `.\start.bat`
+desde la carpeta raíz. Si una aplicación ya está en ejecución, el script la
+conserva y solo inicia la que falte. Si falta el entorno virtual de Motor Ley
+100, el script avisa y CCR y Motor F394 arrancan igual.
 
 Para iniciar únicamente CCR desde una terminal:
 
@@ -19,6 +20,24 @@ cd CCR
 El acceso **Abrir Motor F394** abre `http://127.0.0.1:8502`; por eso Motor F394
 debe estar iniciado. En su pantalla inicial se debe marcar **Conectado a la
 VPN** únicamente si el equipo ya está conectado a la VPN.
+
+## Motor Ley 100
+
+`Motor_Ley100` es independiente de CCR: tiene su propio entorno virtual
+(`Motor_Ley100\.venv`, dependencias en `requirements.txt`) y su propia interfaz
+Streamlit en `http://127.0.0.1:8503`, que abre el botón **Abrir Motor Ley 100**
+del proceso RM LEY 100. Un fallo del motor no afecta a CCR.
+
+- `motor_ley100.py` es la conversión fiel de `motor_Ley100.ipynb` (que se
+  conserva sin cambios como referencia): cada bloque `# %% Celda N` es el código
+  de la celda N. Solo se fija el directorio de trabajo en su carpeta.
+- `app.py` es una capa externa: edita `config_cierre.txt` y `config.txt`, carga
+  insumos, ejecuta el `.py` como subproceso y ofrece las salidas para descargar.
+  No contiene fórmulas.
+- `inputs/`, `tablas_mort_edad/`, `logs/` y `.venv/` están excluidos de Git por
+  contener datos de pólizas o ser regenerables.
+- Preparar el entorno: `python -m venv .venv` y
+  `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
 
 La aplicación usa SQLite en `CCR/data/ccr.db`. En la primera ejecución crea
 automáticamente el periodo del mes actual y sus tareas por defecto. Los meses

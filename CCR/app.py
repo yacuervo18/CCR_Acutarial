@@ -163,6 +163,8 @@ st.markdown("""<style>
 .ccr-process-extension-copy {font-size: .78rem; color: #667085; line-height: 1.4; margin-bottom: .75rem;}
 .st-key-motor-f394-launcher [data-testid="stLinkButton"] a {background: #f2c94c; border-color: #d9ad1e; color: #3f3200; font-weight: 650;}
 .st-key-motor-f394-launcher [data-testid="stLinkButton"] a:hover {background: #e8bb32; border-color: #c79d12; color: #3f3200;}
+.st-key-motor-ley100-launcher [data-testid="stLinkButton"] a {background: #f2c94c; border-color: #d9ad1e; color: #3f3200; font-weight: 650;}
+.st-key-motor-ley100-launcher [data-testid="stLinkButton"] a:hover {background: #e8bb32; border-color: #c79d12; color: #3f3200;}
 .ccr-content-card {border: 1px solid #dededc; border-radius: 12px; padding: .8rem; background: #fff; min-height: 150px;}
 .ccr-content-card-header {font-size: .95rem; font-weight: 650; color: #303030; margin-bottom: .55rem;}
 .ccr-edit-button [data-testid="stButton"] button {min-width: 1.55rem; width: 1.55rem; height: 1.55rem; padding: 0; border: 1px solid #c9c9c7; border-radius: 5px; color: #4b5563; background: #fff; font-size: .78rem; line-height: 1;}
@@ -236,22 +238,41 @@ def render_dashboard(period: str, reminders: list) -> None:
 
 
 MOTOR_F394_URL = "http://127.0.0.1:8502"
+MOTOR_LEY100_URL = "http://127.0.0.1:8503"
+
+MOTOR_LAUNCHERS = {
+    "f394": (
+        "Motor F394",
+        "Accede al Motor F394 para realizar descargas, validaciones y correcciones. "
+        "Las tareas de CCR se marcan manualmente al finalizar.",
+        "Abrir Motor F394",
+        MOTOR_F394_URL,
+        "motor-f394-launcher",
+    ),
+    "rm_ley_100": (
+        "Motor Ley 100",
+        "Accede al Motor Ley 100 para cargar insumos, definir parámetros y ejecutar el cálculo de la reserva. "
+        "Las tareas de CCR se marcan manualmente al finalizar.",
+        "Abrir Motor Ley 100",
+        MOTOR_LEY100_URL,
+        "motor-ley100-launcher",
+    ),
+}
 
 
 def render_process_extension(code: str) -> bool:
-    if code != "f394":
+    launcher = MOTOR_LAUNCHERS.get(code)
+    if launcher is None:
         return False
+    title, copy, label, url, key = launcher
     st.markdown(
         '<div class="ccr-process-extension">'
-        '<div class="ccr-process-extension-title">Motor F394</div>'
-        '<div class="ccr-process-extension-copy">'
-        "Accede al Motor F394 para realizar descargas, validaciones y correcciones. "
-        "Las tareas de CCR se marcan manualmente al finalizar."
-        "</div></div>",
+        f'<div class="ccr-process-extension-title">{title}</div>'
+        f'<div class="ccr-process-extension-copy">{copy}</div></div>',
         unsafe_allow_html=True,
     )
-    with st.container(key="motor-f394-launcher"):
-        st.link_button("Abrir Motor F394", MOTOR_F394_URL, use_container_width=True)
+    with st.container(key=key):
+        st.link_button(label, url, use_container_width=True)
     return True
 
 
@@ -491,7 +512,7 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
                 render_manual_content_card(code, content, readonly, editor_enabled)
     with st.container(key=f"content-card-important-full-{code}"):
         render_important_content_card(code, content, readonly, editor_enabled)
-    if code == "f394":
+    if code in MOTOR_LAUNCHERS:
         tasks_column, extension_column = st.columns([1, 1], gap="large")
         with tasks_column:
             render_task_management(code, readonly, editor_enabled)

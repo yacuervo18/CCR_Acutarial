@@ -51,6 +51,22 @@ if errorlevel 1 (
     echo Motor F394 ya esta iniciado.
 )
 
+set "LEY100_DIR=%ROOT_DIR%Motor_Ley100"
+set "LEY100_PYTHON=%LEY100_DIR%\.venv\Scripts\python.exe"
+if not exist "%LEY100_PYTHON%" (
+    echo AVISO: Motor Ley 100 no se inicia: falta su entorno virtual:
+    echo        %LEY100_PYTHON%
+) else (
+    echo Verificando Motor Ley 100 en http://127.0.0.1:8503...
+    curl.exe --silent --fail --max-time 2 http://127.0.0.1:8503/_stcore/health >nul 2>&1
+    if errorlevel 1 (
+        echo Iniciando Motor Ley 100...
+        start "Motor Ley 100 Streamlit" /min /d "%LEY100_DIR%" "%LEY100_PYTHON%" -m streamlit run app.py --server.headless true --server.port 8503
+    ) else (
+        echo Motor Ley 100 ya esta iniciado.
+    )
+)
+
 timeout /t 5 /nobreak >nul
 start "" http://localhost:8501
 
@@ -58,6 +74,7 @@ echo.
 echo CCR y Motor F394 estan listos o iniciandose.
 echo CCR:       http://localhost:8501
 echo Motor F394: http://127.0.0.1:8502
+echo Motor Ley 100: http://127.0.0.1:8503
 echo.
 echo No cierre las ventanas minimizadas mientras use las aplicaciones.
 endlocal
