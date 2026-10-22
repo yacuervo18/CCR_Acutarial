@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal
 
-title CCR + Motor F394
+title CCR + Motor F394 + Motores CCR
 
 set "ROOT_DIR=%~dp0"
 set "CCR_DIR=%ROOT_DIR%CCR"
@@ -11,7 +11,7 @@ set "CCR_PYTHON=%CCR_DIR%\.venv\Scripts\python.exe"
 set "MOTOR_PYTHON=%MOTOR_DIR%\.venv\Scripts\python.exe"
 
 echo ============================================================
-echo  CCR + Motor F394
+echo  CCR + Motor F394 + Motores CCR
 echo ============================================================
 echo.
 
@@ -51,19 +51,19 @@ if errorlevel 1 (
     echo Motor F394 ya esta iniciado.
 )
 
-set "LEY100_DIR=%ROOT_DIR%Motor_Ley100"
-set "LEY100_PYTHON=%LEY100_DIR%\.venv\Scripts\python.exe"
-if not exist "%LEY100_PYTHON%" (
-    echo AVISO: Motor Ley 100 no se inicia: falta su entorno virtual:
-    echo        %LEY100_PYTHON%
+set "MOTORES_CCR_DIR=%ROOT_DIR%motores_CCR"
+set "MOTORES_CCR_PYTHON=%MOTORES_CCR_DIR%\.venv\Scripts\python.exe"
+if not exist "%MOTORES_CCR_PYTHON%" (
+    echo AVISO: Motores CCR no se inicia: falta su entorno virtual:
+    echo        %MOTORES_CCR_PYTHON%
 ) else (
-    echo Verificando Motor Ley 100 en http://127.0.0.1:8503...
+    echo Verificando Motores CCR en http://127.0.0.1:8503...
     curl.exe --silent --fail --max-time 2 http://127.0.0.1:8503/_stcore/health >nul 2>&1
     if errorlevel 1 (
-        echo Iniciando Motor Ley 100...
-        start "Motor Ley 100 Streamlit" /min /d "%LEY100_DIR%" "%LEY100_PYTHON%" -m streamlit run app.py --server.headless true --server.port 8503
+        echo Iniciando Motores CCR...
+        start "Motores CCR Streamlit" /min /d "%MOTORES_CCR_DIR%" "%MOTORES_CCR_PYTHON%" -m streamlit run app.py --server.headless true --server.port 8503
     ) else (
-        echo Motor Ley 100 ya esta iniciado.
+        echo Motores CCR ya estan iniciados.
     )
 )
 
@@ -71,10 +71,10 @@ timeout /t 5 /nobreak >nul
 start "" http://localhost:8501
 
 echo.
-echo CCR y Motor F394 estan listos o iniciandose.
+echo CCR, Motor F394 y Motores CCR estan listos o iniciandose.
 echo CCR:       http://localhost:8501
 echo Motor F394: http://127.0.0.1:8502
-echo Motor Ley 100: http://127.0.0.1:8503
+echo Motores CCR (selector Ley 100 / ARL): http://127.0.0.1:8503
 echo.
 echo No cierre las ventanas minimizadas mientras use las aplicaciones.
 endlocal

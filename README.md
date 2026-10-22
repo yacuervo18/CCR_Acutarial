@@ -5,10 +5,11 @@ rentabilidades y reportes regulatorios.
 
 ## Ejecutar
 
-Para iniciar CCR junto con Motor F394 y Motor Ley 100, ejecuta `.\start.bat`
+Para iniciar CCR junto con Motor F394 y la interfaz común de los motores
+actuariales, ejecuta `.\start.bat`
 desde la carpeta raíz. Si una aplicación ya está en ejecución, el script la
-conserva y solo inicia la que falte. Si falta el entorno virtual de Motor Ley
-100, el script avisa y CCR y Motor F394 arrancan igual.
+conserva y solo inicia la que falte. Si falta el entorno virtual de
+`motores_CCR`, el script avisa y CCR y Motor F394 arrancan igual.
 
 Para iniciar únicamente CCR desde una terminal:
 
@@ -21,21 +22,32 @@ El acceso **Abrir Motor F394** abre `http://127.0.0.1:8502`; por eso Motor F394
 debe estar iniciado. En su pantalla inicial se debe marcar **Conectado a la
 VPN** únicamente si el equipo ya está conectado a la VPN.
 
-## Motor Ley 100
+## Motores actuariales
 
-`Motor_Ley100` es independiente de CCR: tiene su propio entorno virtual
-(`Motor_Ley100\.venv`, dependencias en `requirements.txt`) y su propia interfaz
-Streamlit en `http://127.0.0.1:8503`, que abre el botón **Abrir Motor Ley 100**
-del proceso RM LEY 100. Un fallo del motor no afecta a CCR.
+`motores_CCR` aloja una sola interfaz Streamlit en el puerto `8503`. Los
+procesos **RM LEY 100** y **RM ARL** de CCR abren esa misma interfaz con el motor
+correspondiente preseleccionado. El selector **Seleccionar motor** permite
+cambiar entre Ley 100 y ARL.
 
-- `motor_ley100.py` es la conversión fiel de `motor_Ley100.ipynb` (que se
-  conserva sin cambios como referencia): cada bloque `# %% Celda N` es el código
-  de la celda N. Solo se fija el directorio de trabajo en su carpeta.
-- `app.py` es una capa externa: edita `config_cierre.txt` y `config.txt`, carga
-  insumos, ejecuta el `.py` como subproceso y ofrece las salidas para descargar.
-  No contiene fórmulas.
-- `inputs/`, `tablas_mort_edad/`, `logs/` y `.venv/` están excluidos de Git por
-  contener datos de pólizas o ser regenerables.
+La interfaz es una capa externa: edita los parámetros aplicables, muestra y
+carga los insumos del motor seleccionado, ejecuta su script como subproceso y
+ofrece sus resultados para descargar. Los cálculos, configuraciones, `inputs`,
+tablas de mortalidad, logs y salidas permanecen en carpetas separadas bajo
+`motores_CCR\motores\ley100` y `motores_CCR\motores\arl`. Los archivos de datos
+y entornos virtuales están excluidos de Git.
+
+- `motor_ley100.py` se copia desde `Motor_Ley100`; la migración reproduce la
+  salida que existía en la carpeta original. La conciliación con el resultado
+  anterior de referencia continúa pendiente.
+- `motor_arl.py` se genera desde `Código Reserva M_ARL.ipynb`; los bloques de
+  cálculo mantienen su contenido y orden. La conversión fija el directorio de
+  trabajo y usa `config_cierre.txt` en lugar de la referencia secundaria a
+  `config.txt`. La interfaz solicita la contraseña con un campo enmascarado
+  solo para ARL y la transmite temporalmente al proceso; no la guarda en la
+  configuración ni en el log.
+- Las carpetas originales `Motor_Ley100` y `motor_ARL` se conservan mientras
+  se completan las validaciones. El motor ARL todavía debe validarse con una
+  corrida contra sus resultados de referencia.
 - Preparar el entorno: `python -m venv .venv` y
   `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
 

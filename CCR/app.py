@@ -165,6 +165,8 @@ st.markdown("""<style>
 .st-key-motor-f394-launcher [data-testid="stLinkButton"] a:hover {background: #e8bb32; border-color: #c79d12; color: #3f3200;}
 .st-key-motor-ley100-launcher [data-testid="stLinkButton"] a {background: #f2c94c; border-color: #d9ad1e; color: #3f3200; font-weight: 650;}
 .st-key-motor-ley100-launcher [data-testid="stLinkButton"] a:hover {background: #e8bb32; border-color: #c79d12; color: #3f3200;}
+.st-key-motor-arl-launcher [data-testid="stLinkButton"] a {background: #f2c94c; border-color: #d9ad1e; color: #3f3200; font-weight: 650;}
+.st-key-motor-arl-launcher [data-testid="stLinkButton"] a:hover {background: #e8bb32; border-color: #c79d12; color: #3f3200;}
 .ccr-content-card {border: 1px solid #dededc; border-radius: 12px; padding: .8rem; background: #fff; min-height: 150px;}
 .ccr-content-card-header {font-size: .95rem; font-weight: 650; color: #303030; margin-bottom: .55rem;}
 .ccr-edit-button [data-testid="stButton"] button {min-width: 1.55rem; width: 1.55rem; height: 1.55rem; padding: 0; border: 1px solid #c9c9c7; border-radius: 5px; color: #4b5563; background: #fff; font-size: .78rem; line-height: 1;}
@@ -238,7 +240,9 @@ def render_dashboard(period: str, reminders: list) -> None:
 
 
 MOTOR_F394_URL = "http://127.0.0.1:8502"
-MOTOR_LEY100_URL = "http://127.0.0.1:8503"
+MOTORES_CCR_BASE_URL = "http://127.0.0.1:8503"
+MOTOR_LEY100_URL = f"{MOTORES_CCR_BASE_URL}/?motor=ley100"
+MOTOR_ARL_URL = f"{MOTORES_CCR_BASE_URL}/?motor=arl"
 
 MOTOR_LAUNCHERS = {
     "f394": (
@@ -256,6 +260,14 @@ MOTOR_LAUNCHERS = {
         "Abrir Motor Ley 100",
         MOTOR_LEY100_URL,
         "motor-ley100-launcher",
+    ),
+    "rm_arl": (
+        "Motor ARL",
+        "Accede al Motor ARL para cargar sus insumos, definir sus parámetros y ejecutar el cálculo de la reserva. "
+        "Las tareas de CCR se marcan manualmente al finalizar.",
+        "Abrir Motor ARL",
+        MOTOR_ARL_URL,
+        "motor-arl-launcher",
     ),
 }
 
