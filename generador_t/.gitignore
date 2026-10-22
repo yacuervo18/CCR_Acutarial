@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+run_logs/
+.run_locks/
+
+ARL/*
+Ley100/*
+!Ley100/Tasas_cierre.xlsx

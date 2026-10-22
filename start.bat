@@ -67,6 +67,15 @@ if not exist "%MOTORES_CCR_PYTHON%" (
     )
 )
 
+set "GENERADOR_T_DIR=%ROOT_DIR%generador_t"
+set "GENERADOR_T_PYTHON=%GENERADOR_T_DIR%\.venv\Scripts\python.exe"
+if not exist "%GENERADOR_T_PYTHON%" (
+    echo AVISO: Generar t_consolidada estara deshabilitado hasta ejecutar:
+    echo        generador_t\instalar.bat
+) else (
+    echo Generador de t_consolidada preparado para su ejecucion desde CCR.
+)
+
 timeout /t 5 /nobreak >nul
 start "" http://localhost:8501
 

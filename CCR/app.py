@@ -20,6 +20,7 @@ from src.ui.process_operations import (
     render_process_operations,
     render_process_operation_workflow,
 )
+from src.ui.stock_generator import render_stock_generator
 
 page_icon_path = Path(__file__).resolve().parents[1] / "Icono_Sura.png"
 
@@ -272,10 +273,12 @@ MOTOR_LAUNCHERS = {
 }
 
 
-def render_process_extension(code: str) -> bool:
+def render_process_extension(code: str, readonly: bool = False) -> bool:
     launcher = MOTOR_LAUNCHERS.get(code)
     if launcher is None:
         return False
+    if code in {"rm_ley_100", "rm_arl"}:
+        render_stock_generator(code, readonly)
     title, copy, label, url, key = launcher
     st.markdown(
         '<div class="ccr-process-extension">'
@@ -531,7 +534,7 @@ def render_process(period: str, code: str, readonly: bool = False) -> None:
             render_process_tasks(process, period, code, readonly)
         with extension_column:
             st.subheader("Espacio del proceso")
-            render_process_extension(code)
+            render_process_extension(code, readonly)
     elif code in PROCESS_OPERATION_PANELS:
         tasks_column, actions_column = st.columns([1, 1], gap="large")
         with tasks_column:

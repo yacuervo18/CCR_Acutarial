@@ -51,6 +51,25 @@ y entornos virtuales están excluidos de Git.
 - Preparar el entorno: `python -m venv .venv` y
   `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
 
+## Generador de t_consolidada para RM
+
+En el espacio de proceso de **RM ARL** y **RM Ley 100** se encuentra la acción
+independiente **Generar t_consolidada**, antes del acceso a cada motor. La
+descarga desde Osiris, las evidencias SOX
+de ARL y la consolidación mediante Excel se ejecutan en un subproceso del
+componente `generador_t`, no en el proceso web de CCR. Por equipo, preparar
+este entorno una sola vez con `generador_t\instalar.bat` (Windows, Python,
+Chrome y Excel requeridos). La aplicación principal no instala ni inicia este
+componente automáticamente.
+
+Los parámetros se guardan por ramo en `generador_t\params.json`. Las
+credenciales se transmiten al proceso hijo por entrada estándar y no se
+guardan en ese archivo ni en la bitácora. Stock y Nuevo quedan bajo
+`generador_t\ARL\<AAAAMM>` o `generador_t\Ley100\<AAAAMM>`; no se
+copian automáticamente a las carpetas de los motores. Solo se permite una
+generación a la vez. La carpeta de referencia del generador ya no está dentro
+del proyecto; la copia de respaldo se conserva fuera del repositorio.
+
 La aplicación usa SQLite en `CCR/data/ccr.db`. En la primera ejecución crea
 automáticamente el periodo del mes actual y sus tareas por defecto. Los meses
 anteriores se conservan y se consultan en modo lectura recomendado; la fase 1
