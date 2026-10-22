@@ -1,26 +1,13 @@
 Parametro;Valor
-Nombre Reserva;Ley100
 Fecha valoración t-1;2026/07/31
 Fecha valoración t;2026/08/31
 Fecha Cierre;2026/08/31
 SMMLV;1750905
-Inflacion t-1;6.14
-Inflacion t;6.03
-Deslizamiento CRO;False
-Deslizamiento GAV;False
 Inflacion;6.03
-Salida;Ley100.xlsx
+Salida;RM.xlsx
 Mortalidad;False
 Informe;False
 Correr Nuevas;False
 Conservar Mesada;False
 bd_t_1;False
 Flujos_proyectados;False
-Informe IFRS17;False
-Informe Tasa Sura;False
-Reserva ant informe;False
-Fecha Min Nueva Producción;202301
-Ramo;094
-Compañia;22
-Estado;P
-Proyeccion sin IPC;False
