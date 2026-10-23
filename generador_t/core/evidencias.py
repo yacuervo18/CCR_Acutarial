@@ -6,6 +6,8 @@ contra la plantilla), parametrizado con Params en vez de valores quemados.
 """
 from __future__ import annotations
 
+import shutil
+import tempfile
 import time
 from copy import copy
 from pathlib import Path
@@ -226,6 +228,16 @@ def capturar_evidencias_sox(
             driver.quit()
 
 
+def _origen_excel(csv_path: Path) -> int:
+    """Codificación para OpenText: 65001 si el archivo es UTF-8 (ARL), 2 (ANSI) si no."""
+    datos = csv_path.read_bytes()
+    try:
+        datos.decode("utf-8")
+    except UnicodeDecodeError:
+        return 2
+    return 65001 if any(b > 127 for b in datos) else 2
+
+
 def convertir_csv_a_xlsx(fecha: str, log: Logger = print, progreso: Progreso = _sin_progreso) -> None:
     """Convierte T1..T11.csv (descargados) a xlsx via COM de Excel, en la misma carpeta."""
     import pythoncom
@@ -249,13 +261,27 @@ def convertir_csv_a_xlsx(fecha: str, log: Logger = print, progreso: Progreso = _
                 xlsx_path = csv_path.with_suffix(".xlsx")
                 progreso(n - 1, len(archivos_csv), f"{csv_path.name} ({n} de {len(archivos_csv)})")
                 log(f"Convirtiendo {csv_path.name} -> {xlsx_path.name}")
-                wb = excel.Workbooks.Open(str(csv_path))
-                try:
-                    wb.SaveAs(str(xlsx_path), FileFormat=51)
-                    wb.Close()
-                    wb = None
-                except Exception as e:
-                    raise RuntimeError(f"No se pudo convertir {csv_path.name}: {explicar_error(e)}") from e
+                # Excel ignora el separador pedido en OpenText para archivos .csv y
+                # usa el de Windows (",", dejando los ";" en una sola columna);
+                # con extensión .txt sí respeta Semicolon=True.
+                with tempfile.TemporaryDirectory() as tmp:
+                    copia_txt = Path(tmp) / f"{csv_path.stem}.txt"
+                    shutil.copyfile(csv_path, copia_txt)
+                    # Argumentos posicionales: por COM los nombrados no se asignan bien.
+                    # Filename, Origin, StartRow, DataType(1=delimitado),
+                    # TextQualifier(1=comillas), ConsecutiveDelimiter, Tab, Semicolon,
+                    # Comma, Space, Other
+                    excel.Workbooks.OpenText(
+                        str(copia_txt), _origen_excel(csv_path), 1, 1, 1,
+                        False, False, True, False, False, False,
+                    )
+                    wb = excel.ActiveWorkbook
+                    try:
+                        wb.SaveAs(str(xlsx_path), FileFormat=51)
+                        wb.Close()
+                        wb = None
+                    except Exception as e:
+                        raise RuntimeError(f"No se pudo convertir {csv_path.name}: {explicar_error(e)}") from e
                 progreso(n, len(archivos_csv), f"{xlsx_path.name} listo")
         finally:
             cerrar_excel(excel, wb, pid, log)
