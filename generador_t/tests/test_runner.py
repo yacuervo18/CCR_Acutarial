@@ -174,6 +174,31 @@ class RunnerTests(unittest.TestCase):
         run_generation.assert_not_called()
         period_lock.assert_not_called()
 
+    @patch("core.worker.GeneratorLock")
+    @patch("core.worker.partir_consolidado")
+    def test_worker_splits_existing_total_without_credentials(
+        self, split_total, period_lock
+    ):
+        split_total.return_value.stock = Path("LEY100/202608/stock.csv")
+        split_total.return_value.nuevo = Path("LEY100/202608/nuevo.csv")
+        split_total.return_value.total = Path("LEY100/202608/total.csv")
+        params = _params("LEY100")
+        output = StringIO()
+        with redirect_stdout(output):
+            exit_code = _run(
+                {
+                    "action": "split",
+                    "tipo_ramo": "LEY100",
+                    "params": params.to_dict(),
+                }
+            )
+
+        self.assertEqual(exit_code, 0)
+        period_lock.assert_called_once()
+        split_total.assert_called_once()
+        self.assertIn('"type": "completed"', output.getvalue())
+        self.assertNotIn("credentials", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

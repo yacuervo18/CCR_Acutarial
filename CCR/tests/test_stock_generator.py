@@ -134,7 +134,7 @@ def test_stock_generator_form_renders_without_starting_a_job():
     stock_generator._JOBS.clear()
     app = AppTest.from_string(
         "from src.ui.stock_generator import render_stock_generator\n"
-        "render_stock_generator('rm_arl', False)"
+        "render_stock_generator('rm_ley_100', False)"
     ).run(timeout=30)
 
     assert not app.exception
@@ -144,8 +144,166 @@ def test_stock_generator_form_renders_without_starting_a_job():
 
     assert not app.exception
     assert any(button.label == "Confirmar y generar" for button in app.button)
+    assert "Revisar el consolidado total antes de partir Stock/Nuevo" in {
+        widget.label for widget in app.checkbox
+    }
     assert {widget.label for widget in app.text_input} == {
         "Usuario Osiris/SURA",
         "Contraseña Osiris/SURA",
         "Contraseña de la macro",
     }
+
+
+def test_finished_job_can_be_dismissed_without_deleting_its_log(tmp_path, monkeypatch):
+    class FinishedProcess:
+        def poll(self):
+            return 1
+
+    log_path = tmp_path / "failed-run.jsonl"
+    log_path.write_text(
+        '{"type":"error","message":"No hay conexión VPN"}\n',
+        encoding="utf-8",
+    )
+    job = stock_generator.GeneratorJob(
+        FinishedProcess(),
+        log_path,
+        "ARL",
+        "202610",
+        {},
+    )
+    monkeypatch.setitem(stock_generator._JOBS, "ARL", job)
+    app = AppTest.from_string(
+        "from src.ui.stock_generator import _render_job_monitor_content\n"
+        "_render_job_monitor_content('ARL')"
+    ).run(timeout=30)
+
+    assert not app.exception
+    assert any("No hay conexión VPN" in item.value for item in app.error)
+    assert any(button.label == "Descartar resultado anterior" for button in app.button)
+
+    app = next(
+        button for button in app.button if button.label == "Descartar resultado anterior"
+    ).click().run(timeout=30)
+
+    assert not app.exception
+    assert not app.error
+    assert "ARL" not in stock_generator._JOBS
+    assert log_path.is_file()
+
+
+def test_running_job_cannot_be_dismissed(tmp_path, monkeypatch):
+    class RunningProcess:
+        def poll(self):
+            return None
+
+    job = stock_generator.GeneratorJob(
+        RunningProcess(),
+        tmp_path / "running-run.jsonl",
+        "ARL",
+        "202610",
+        {},
+    )
+    monkeypatch.setitem(stock_generator._JOBS, "ARL", job)
+    app = AppTest.from_string(
+        "from src.ui.stock_generator import _render_job_monitor_content\n"
+        "_render_job_monitor_content('ARL')"
+    ).run(timeout=30)
+
+    assert not app.exception
+    assert not any(button.label == "Descartar resultado anterior" for button in app.button)
+    assert stock_generator._JOBS["ARL"] is job
+
+
+def test_generated_files_are_offered_as_three_downloads(tmp_path):
+    output_dir = tmp_path / "Ley100" / "202610" / "6_Ts_consolidadas"
+    output_dir.mkdir(parents=True)
+    for name in (
+        "202610_t_consolidada_Ley100.csv",
+        "202610_t_consolidada_Stock_Ley100.csv",
+        "202610_t_consolidada_Nuevo_Ley100.csv",
+    ):
+        (output_dir / name).write_text("NMPOLIZA\nP1\n", encoding="latin-1")
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "a" * 32,
+                "archivo_revisado": None,
+                "cantidad_correcciones": 0,
+                "filas_total": 1,
+                "filas_stock": 1,
+                "filas_nuevo": 0,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    app = AppTest.from_string(
+        "from pathlib import Path\n"
+        "from src.ui import stock_generator\n"
+        f"stock_generator.GENERATOR_ROOT = Path({str(tmp_path)!r})\n"
+        "job = stock_generator.GeneratorJob(None, Path('run.jsonl'), "
+        "'LEY100', '202610', {})\n"
+        "stock_generator._render_generated_downloads(job, "
+        "{'total': 'total.csv', 'stock': 'stock.csv', 'nuevo': 'nuevo.csv'})"
+    ).run(timeout=30)
+
+    assert not app.exception
+    assert {button.label for button in app.get("download_button")} == {
+        "Descargar Total",
+        "Descargar Stock",
+        "Descargar Nuevo",
+    }
+
+
+def test_policy_review_saves_a_run_scoped_copy_and_audit_record(tmp_path):
+    run_id = "a" * 32
+    output_dir = tmp_path / "Ley100" / "202610" / "6_Ts_consolidadas"
+    output_dir.mkdir(parents=True)
+    total_path = output_dir / "202610_t_consolidada_Ley100.csv"
+    total_path.write_text(
+        "NMPOLIZA;Asegurado;TASA\n001;7;1.2\n",
+        encoding="latin-1",
+    )
+    (output_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "archivo_revisado": None,
+                "cantidad_correcciones": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = AppTest.from_string(
+        "from pathlib import Path\n"
+        "from src.ui import stock_generator\n"
+        f"stock_generator.GENERATOR_ROOT = Path({str(tmp_path)!r})\n"
+        "job = stock_generator.GeneratorJob(None, Path('run.jsonl'), "
+        "'LEY100', '202610', {}, True)\n"
+        "stock_generator._render_review_editor(job)"
+    ).run(timeout=30)
+    assert not app.exception
+
+    app.text_input[0].set_value("001").run()
+    next(button for button in app.button if button.label == "Buscar póliza").click().run()
+    assert not app.exception
+    assert any("Se encontraron 1 registro" in item.value for item in app.success)
+
+    next(box for box in app.selectbox if box.label == "Campo que deseas corregir").select("TASA").run()
+    next(widget for widget in app.text_input if widget.label == "Nuevo valor").set_value("1.25").run()
+    next(
+        button
+        for button in app.button
+        if button.label == "Guardar corrección para esta corrida"
+    ).click().run()
+    assert not app.exception
+
+    reviewed_path = output_dir / f"202610_t_consolidada_Ley100_revisado_{run_id}.csv"
+    audit_path = output_dir / f"202610_correcciones_{run_id}.jsonl"
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert "001;7;1.2" in total_path.read_text(encoding="latin-1")
+    assert "001;7;1.25" in reviewed_path.read_text(encoding="latin-1")
+    assert audit_path.exists()
+    assert manifest["archivo_revisado"] == reviewed_path.name
+    assert manifest["cantidad_correcciones"] == 1

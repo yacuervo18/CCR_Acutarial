@@ -5,13 +5,16 @@ import calendar
 import json
 import os
 import subprocess
+import zipfile
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import streamlit as st
+
+from . import consolidated_review, original_bundle
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 GENERATOR_ROOT = PROJECT_ROOT / "generador_t"
@@ -45,6 +48,8 @@ class GeneratorJob:
     log_path: Path
     tipo_ramo: str
     periodo: str
+    params: dict[str, Any]
+    review_requested: bool = False
 
 
 _JOBS: dict[str, GeneratorJob] = {}
@@ -178,7 +183,14 @@ def start_generator(payload: dict[str, Any]) -> GeneratorJob:
                 f"No se pudo enviar la solicitud al proceso. Bitácora: {log_path.name}"
             ) from None
 
-    job = GeneratorJob(process, log_path, tipo_ramo, periodo)
+    job = GeneratorJob(
+        process,
+        log_path,
+        tipo_ramo,
+        periodo,
+        dict(payload["params"]),
+        payload.get("revisar_antes_de_partir") is True,
+    )
     _JOBS[_job_key(tipo_ramo)] = job
     return job
 
@@ -203,6 +215,310 @@ def _read_events(path: Path) -> list[dict[str, Any]]:
         if isinstance(event, dict):
             events.append(event)
     return events
+
+
+def _generated_file_paths(job: GeneratorJob) -> dict[str, Path]:
+    ramo_folder = "Ley100" if job.tipo_ramo == "LEY100" else "ARL"
+    suffix = "Ley100" if job.tipo_ramo == "LEY100" else "RM"
+    output_dir = GENERATOR_ROOT / ramo_folder / job.periodo / "6_Ts_consolidadas"
+    return {
+        "Total": output_dir / f"{job.periodo}_t_consolidada_{suffix}.csv",
+        "Stock": output_dir / f"{job.periodo}_t_consolidada_Stock_{suffix}.csv",
+        "Nuevo": output_dir / f"{job.periodo}_t_consolidada_Nuevo_{suffix}.csv",
+    }
+
+
+def _read_run_manifest(job: GeneratorJob) -> tuple[Path, dict[str, Any]]:
+    total_path = _generated_file_paths(job)["Total"]
+    manifest_path = total_path.parent / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"No se pudo leer el registro de generación: {error}") from error
+    if not isinstance(manifest, dict):
+        raise ValueError("El registro de generación tiene un formato inválido.")
+    return manifest_path, manifest
+
+
+def _review_paths(
+    job: GeneratorJob, manifest: dict[str, Any]
+) -> tuple[str, Path, Path]:
+    run_id = manifest.get("run_id")
+    if not isinstance(run_id, str) or len(run_id) != 32 or not run_id.isalnum():
+        raise ValueError("El registro de generación no contiene un identificador válido.")
+    output_dir = _generated_file_paths(job)["Total"].parent
+    reviewed_name = f"{job.periodo}_t_consolidada_Ley100_revisado_{run_id}.csv"
+    audit_name = f"{job.periodo}_correcciones_{run_id}.jsonl"
+    registered_name = manifest.get("archivo_revisado")
+    if registered_name not in (None, reviewed_name):
+        raise ValueError("El consolidado revisado no corresponde a la corrida activa.")
+    return run_id, output_dir / reviewed_name, output_dir / audit_name
+
+
+def _write_run_manifest(path: Path, manifest: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _render_generated_downloads(job: GeneratorJob, completed: dict[str, Any]) -> None:
+    files = _generated_file_paths(job)
+    try:
+        _, manifest = _read_run_manifest(job)
+        if job.tipo_ramo == "LEY100":
+            _, reviewed_path, _ = _review_paths(job, manifest)
+        else:
+            reviewed_path = None
+            if manifest.get("archivo_revisado"):
+                raise ValueError("ARL no admite revisiones de pólizas en esta fase.")
+    except ValueError as error:
+        st.error(str(error))
+        return
+    available = []
+    for file_type in ("Total", "Stock", "Nuevo"):
+        path = files[file_type]
+        if file_type == "Total" and not completed.get("total"):
+            continue
+        if file_type in {"Stock", "Nuevo"} and not completed.get(file_type.lower()):
+            continue
+        if not path.is_file():
+            st.error(f"El proceso reportó {file_type}, pero no se encontró el archivo esperado: {path}")
+            continue
+        label = (
+            "Total original"
+            if file_type == "Total" and manifest.get("archivo_revisado")
+            else file_type
+        )
+        available.append((label, path, file_type.lower()))
+    if manifest.get("archivo_revisado"):
+        if reviewed_path is not None and reviewed_path.is_file():
+            available.append(("Total revisado", reviewed_path, "filas_total"))
+        else:
+            st.error("El manifest referencia un consolidado revisado que no existe o no corresponde al ramo.")
+
+    if not available:
+        st.warning("No hay archivos consolidados disponibles para descargar.")
+        return
+
+    columns = st.columns(len(available))
+    count_keys = {
+        "Total": "filas_total",
+        "Total original": "filas_total",
+        "Stock": "filas_stock",
+        "Nuevo": "filas_nuevo",
+    }
+    for column, (label, path, count_key) in zip(columns, available):
+        with column:
+            count = manifest.get(count_keys.get(label, count_key))
+            if count is not None:
+                st.caption(f"{label} · {count:,} filas")
+            st.download_button(
+                f"Descargar {label}",
+                data=path.read_bytes(),
+                file_name=path.name,
+                mime="text/csv",
+                key=f"download-stock-{job.tipo_ramo}-{job.periodo}-{label.lower()}",
+                use_container_width=True,
+            )
+
+    if completed.get("stock") and completed.get("nuevo"):
+        run_id = manifest.get("run_id")
+        if not isinstance(run_id, str) or len(run_id) != 32 or not run_id.isalnum():
+            st.error("No se puede preparar Ts_original: el registro no identifica la corrida.")
+            return
+        archive_path = files["Total"].parent / f"Ts_original_{job.periodo}_{run_id}.zip"
+        st.caption(
+            "El ZIP reúne el total final, Stock completo de evidencia, Nuevo, "
+            "la macro calculada y las T1 a T11 en XLSX."
+        )
+        if st.button(
+            "Preparar paquete Ts_original (.zip)",
+            key=f"prepare-ts-original-{job.tipo_ramo}-{job.periodo}-{run_id}",
+        ):
+            ramo_folder = "Ley100" if job.tipo_ramo == "LEY100" else "ARL"
+            suffix = "Ley100" if job.tipo_ramo == "LEY100" else "RM"
+            try:
+                archive_path = original_bundle.create_original_bundle(
+                    GENERATOR_ROOT,
+                    ramo_folder,
+                    job.periodo,
+                    suffix,
+                    manifest,
+                )
+            except (OSError, ValueError, zipfile.BadZipFile) as error:
+                st.error(f"No se pudo preparar el paquete Ts_original: {error}")
+            else:
+                st.success("Paquete Ts_original preparado con las salidas, la macro y las Ts.")
+        if archive_path.is_file():
+            size_mb = archive_path.stat().st_size / (1024 * 1024)
+            st.caption(f"Paquete · {size_mb:.1f} MB")
+            with archive_path.open("rb") as archive_file:
+                st.download_button(
+                    "Descargar Ts_original (.zip)",
+                    data=archive_file,
+                    file_name=archive_path.name,
+                    mime="application/zip",
+                    key=f"download-ts-original-{job.tipo_ramo}-{job.periodo}-{run_id}",
+                    use_container_width=True,
+                )
+
+
+def _render_review_editor(job: GeneratorJob) -> None:
+    files = _generated_file_paths(job)
+    try:
+        manifest_path, manifest = _read_run_manifest(job)
+        run_id, reviewed_path, audit_path = _review_paths(job, manifest)
+    except ValueError as error:
+        st.error(str(error))
+        return
+
+    if not files["Total"].is_file():
+        st.error("No se encontró el consolidado total para buscar pólizas.")
+        return
+    registered_revision = manifest.get("archivo_revisado")
+    if registered_revision and not reviewed_path.is_file():
+        st.error("El registro indica que hay correcciones, pero falta el archivo revisado.")
+        return
+    source_path = reviewed_path if registered_revision else files["Total"]
+    prefix = f"stock-review-{job.periodo}-{run_id}"
+    search_key = f"{prefix}-query"
+    results_key = f"{prefix}-results"
+    token_key = f"{prefix}-search-token"
+
+    with st.expander("Buscar y corregir una póliza", expanded=True):
+        st.caption(
+            "Busca por NMPOLIZA. El total original se conserva; cada ajuste queda "
+            "en una copia revisada de esta corrida y no se reaplica al regenerar."
+        )
+        with st.form(f"{prefix}-search-form"):
+            policy_query = st.text_input("Número de póliza (NMPOLIZA)", key=search_key)
+            search_submitted = st.form_submit_button("Buscar póliza")
+        if search_submitted:
+            try:
+                headers, matches = consolidated_review.find_policy_rows(
+                    source_path, policy_query
+                )
+            except (OSError, ValueError) as error:
+                st.error(f"No se pudo buscar la póliza: {error}")
+                st.session_state.pop(results_key, None)
+            else:
+                st.session_state[results_key] = {
+                    "headers": headers,
+                    "matches": matches,
+                    "query": policy_query.strip(),
+                }
+                st.session_state[token_key] = uuid4().hex
+
+        results = st.session_state.get(results_key)
+        if results:
+            matches = results["matches"]
+            if not matches:
+                st.info(f"No se encontró la póliza {results['query']} en el consolidado.")
+            else:
+                st.success(f"Se encontraron {len(matches)} registro(s) para esa póliza.")
+                row_by_index = {index: row for index, row in matches}
+                token = st.session_state.get(token_key, "initial")
+
+                def describe_match(row_index: int) -> str:
+                    row = row_by_index[row_index]
+                    context = [f"Registro {row_index + 1}"]
+                    for column in ("Asegurado", "FEVIGENCIA_INICIAL", "Estado Póliza"):
+                        if row.get(column):
+                            context.append(f"{column}: {row[column]}")
+                    return " · ".join(context)
+
+                selected_row_index = st.selectbox(
+                    "Registro de la póliza",
+                    options=[index for index, _ in matches],
+                    format_func=describe_match,
+                    key=f"{prefix}-{token}-row",
+                )
+                row = row_by_index[selected_row_index]
+                with st.expander("Ver todos los datos de esta póliza"):
+                    st.json(row)
+                editable_columns = [
+                    column
+                    for column in results["headers"]
+                    if column not in consolidated_review.READ_ONLY_COLUMNS
+                ]
+                if not editable_columns:
+                    st.error("No hay columnas editables en el consolidado.")
+                else:
+                    field = st.selectbox(
+                        "Campo que deseas corregir",
+                        options=editable_columns,
+                        key=f"{prefix}-{token}-{selected_row_index}-field",
+                    )
+                    current_value = row.get(field, "")
+                    st.caption(
+                        f"Valor actual de **{field}**: "
+                        f"{current_value if current_value else '(vacío)'}"
+                    )
+                    new_value = st.text_input(
+                        "Nuevo valor",
+                        value=current_value,
+                        key=f"{prefix}-{token}-{selected_row_index}-{field}-value",
+                        help="Se guarda como texto. Revisa el formato requerido para fechas y números.",
+                    )
+                    if st.button(
+                        "Guardar corrección para esta corrida",
+                        key=f"{prefix}-{token}-{selected_row_index}-save",
+                        type="primary",
+                    ):
+                        if new_value == current_value:
+                            st.info("El valor no cambió; no se guardó ninguna corrección.")
+                        else:
+                            try:
+                                previous_value = consolidated_review.update_reviewed_cell(
+                                    source_path,
+                                    reviewed_path,
+                                    selected_row_index,
+                                    field,
+                                    new_value,
+                                )
+                                correction = {
+                                    "fecha": datetime.now().astimezone().isoformat(timespec="seconds"),
+                                    "run_id": run_id,
+                                    "NMPOLIZA": row["NMPOLIZA"],
+                                    "fila_csv": selected_row_index + 2,
+                                    "columna": field,
+                                    "valor_anterior": previous_value,
+                                    "valor_nuevo": new_value,
+                                }
+                                consolidated_review.append_change_record(audit_path, correction)
+                                manifest["archivo_revisado"] = reviewed_path.name
+                                manifest["cantidad_correcciones"] = (
+                                    int(manifest.get("cantidad_correcciones", 0)) + 1
+                                )
+                                manifest["revision_actualizada_en"] = correction["fecha"]
+                                _write_run_manifest(manifest_path, manifest)
+                            except (OSError, ValueError, IndexError, TypeError) as error:
+                                st.error(f"No se pudo guardar la corrección: {error}")
+                            else:
+                                row[field] = new_value
+                                st.session_state[results_key] = results
+                                st.success("Corrección guardada en la copia revisada de esta corrida.")
+                                st.rerun(scope="app")
+
+        if audit_path.is_file():
+            st.caption(
+                f"Correcciones registradas en esta corrida: "
+                f"{manifest.get('cantidad_correcciones', 0)}."
+            )
+            st.download_button(
+                "Descargar bitácora de correcciones",
+                data=audit_path.read_bytes(),
+                file_name=audit_path.name,
+                mime="application/x-ndjson",
+                key=f"{prefix}-download-audit",
+            )
 
 
 def _render_job_monitor_content(key: str) -> None:
@@ -236,9 +552,49 @@ def _render_job_monitor_content(key: str) -> None:
                 f"{progress_event.get('message', 'En curso')}",
             )
     elif return_code == 0 and completed:
-        st.success("t_consolidada generada. Los archivos quedaron en generador_t; no se copiaron al motor.")
-        st.caption(f"Stock: {completed.get('stock', '')}")
-        st.caption(f"Nuevo: {completed.get('nuevo', '')}")
+        if completed.get("stock") and completed.get("nuevo"):
+            st.success("t_consolidada generada. Los archivos quedaron en generador_t; no se copiaron al motor.")
+        else:
+            st.info(
+                "Consolidado total generado. Puedes buscar una póliza, guardar correcciones "
+                "para esta corrida y luego generar Stock/Nuevo."
+            )
+        _render_generated_downloads(job, completed)
+        if (
+            job.review_requested
+            and job.tipo_ramo == "LEY100"
+            and completed.get("total")
+            and not completed.get("stock")
+            and not completed.get("nuevo")
+        ):
+            _render_review_editor(job)
+        if completed.get("total") and not completed.get("stock") and not completed.get("nuevo"):
+            has_corrections = False
+            if job.review_requested and job.tipo_ramo == "LEY100":
+                try:
+                    _, manifest = _read_run_manifest(job)
+                    has_corrections = int(manifest.get("cantidad_correcciones", 0)) > 0
+                except (ValueError, TypeError) as error:
+                    st.error(f"No se pudo verificar el estado de las correcciones: {error}")
+            if st.button(
+                "Aplicar correcciones y generar Stock/Nuevo"
+                if has_corrections
+                else "Continuar y generar Stock/Nuevo",
+                key=f"continue-stock-{key.lower()}-{job.periodo}",
+                type="primary",
+            ):
+                try:
+                    start_generator(
+                        {
+                            "action": "split",
+                            "tipo_ramo": job.tipo_ramo,
+                            "params": job.params,
+                        }
+                    )
+                except (OSError, RuntimeError, ValueError, KeyError) as error:
+                    st.error(f"No se pudo continuar la generación: {error}")
+                else:
+                    st.rerun(scope="app")
     elif error:
         st.error(str(error.get("message", "La generación falló.")))
     else:
@@ -262,6 +618,15 @@ def _render_job_monitor_content(key: str) -> None:
                 mime="application/json",
                 key=f"download-stock-log-{key.replace(':', '-')}",
             )
+    if return_code is not None:
+        st.caption("Esto solo oculta el resultado en pantalla; no borra la bitácora ni los archivos.")
+        if st.button(
+            "Descartar resultado anterior",
+            key=f"discard-stock-result-{key.replace(':', '-')}-{job.periodo}",
+            on_click=_discard_job_result,
+            args=(key,),
+        ):
+            return
 
 
 @st.fragment(run_every="2s")
@@ -282,6 +647,12 @@ def _period_has_files(code: str, month: str) -> bool:
 def _clear_credentials(code: str) -> None:
     for suffix in ("usuario", "contrasena_osiris", "contrasena_macro"):
         st.session_state[f"stock-{code}-{suffix}"] = ""
+
+
+def _discard_job_result(key: str) -> None:
+    job = _JOBS.get(key)
+    if job is not None and job.process.poll() is not None:
+        _JOBS.pop(key)
 
 
 def render_stock_generator(code: str, readonly: bool) -> None:
@@ -422,11 +793,28 @@ def render_stock_generator(code: str, readonly: bool) -> None:
                                 "Generar Stock vacío (solo encabezados)",
                                 value=bool(initial["stock_vacia"]),
                                 key=f"stock-{code}-stock-vacio",
+                                help=(
+                                    "El Stock sale solo con encabezados y el cálculo corre más rápido. "
+                                    "Las pólizas anteriores al corte quedan solo en el consolidado total."
+                                ),
                             )
-                            nuevo_vacia = st.checkbox(
-                                "Generar Nuevo vacío (solo encabezados)",
-                                value=bool(initial["nuevo_vacia"]),
-                                key=f"stock-{code}-nuevo-vacio",
+                            # En Ley 100 Nuevo siempre lleva pólizas.
+                            nuevo_vacia = False
+                            if branch["tipo"] != "LEY100":
+                                nuevo_vacia = st.checkbox(
+                                    "Generar Nuevo vacío (solo encabezados)",
+                                    value=bool(initial["nuevo_vacia"]),
+                                    key=f"stock-{code}-nuevo-vacio",
+                                )
+                        revisar_antes_de_partir = False
+                        if branch["tipo"] == "LEY100":
+                            revisar_antes_de_partir = st.checkbox(
+                                "Revisar el consolidado total antes de partir Stock/Nuevo",
+                                key=f"stock-{code}-revisar-total",
+                                help=(
+                                    "Detiene la generación después de guardar el consolidado total "
+                                    "para buscar y corregir pólizas antes de partir Stock/Nuevo."
+                                ),
                             )
 
                         st.markdown("**Credenciales temporales**")
@@ -486,6 +874,7 @@ def render_stock_generator(code: str, readonly: bool) -> None:
                             request = {
                                 "tipo_ramo": branch["tipo"],
                                 "params": params,
+                                "revisar_antes_de_partir": revisar_antes_de_partir,
                                 "credentials": {
                                     "usuario_osiris": usuario,
                                     "contrasena_osiris": contrasena_osiris,

@@ -12,6 +12,9 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from ts_generadas import find_generation
+from ts_import import copy_generated_ts
+
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -226,6 +229,40 @@ def store_uploaded_file(directory: Path, name: str, contents: bytes) -> Path:
     return destination
 
 
+def prefill_generated_parameters(reserve: str, period: str, motor_key: str) -> None:
+    generation = find_generation(reserve, period)
+    if generation is None:
+        raise FileNotFoundError(
+            f"Las Ts de {reserve} para {period} ya no están disponibles o no son válidas."
+        )
+    values = {
+        "Fecha valoración t-1": generation.previous_valuation_date,
+        "Fecha valoración t": generation.valuation_date,
+        "Fecha Cierre": generation.valuation_date,
+        "Inflacion": format(generation.inflation, ".15g"),
+        "SMMLV": format(generation.smmlv, ".15g"),
+    }
+    for name, value in values.items():
+        st.session_state[f"param_{motor_key}_{name}"] = value
+    st.session_state[f"generated_ts_period_{motor_key}"] = period
+
+
+def copy_selected_generated_ts(
+    reserve: str, period: str, folder: str, target_dir: Path
+) -> str:
+    generation = find_generation(reserve, period)
+    if generation is None:
+        raise FileNotFoundError(
+            f"Las Ts de {reserve} para {period} ya no están disponibles o no son válidas."
+        )
+    if folder != period:
+        raise ValueError(
+            "El mes de Fecha Cierre debe coincidir con el mes de las Ts seleccionadas."
+        )
+    copied = copy_generated_ts(generation, target_dir)
+    return f"Se copiaron las Ts de {reserve} {period}: {', '.join(copied)}."
+
+
 def period_area_path(engine_dir: Path, folder: str, area: str) -> Path:
     if area not in {"parametros", "salida", "t_consolidada"}:
         raise ValueError(f"Carpeta de periodo no permitida: {area}")
@@ -339,6 +376,53 @@ pending_setup = st.session_state.get("period_setup_pending")
 is_confirming_period = (
     pending_setup is not None and pending_setup["motor_key"] == motor_key
 )
+generated_period: str | None = None
+selected_generated = None
+use_generated_key = f"use_generated_ts_{motor_key}"
+generated_period_state_key = f"generated_ts_period_{motor_key}"
+current_period = date.today().strftime("%Y%m")
+current_generated = find_generation(motor["reserve"], current_period)
+if current_generated is None:
+    st.session_state[use_generated_key] = False
+    st.session_state.pop(generated_period_state_key, None)
+    st.info(
+        f":small[Para el período {current_period} no hay Ts generadas completas y "
+        f"válidas para {motor['label']}. Puede continuar realizando la "
+        "parametrización y carga de los archivos de manera manual en la "
+        "sección 2 de este motor.]"
+    )
+else:
+    st.caption(
+        f"Ts {motor['label']} disponibles para {current_period} · "
+        f"Nuevo: {current_generated.new_rows:,} pólizas · "
+        f"Stock: {current_generated.stock_rows:,} pólizas."
+    )
+    use_generated = st.checkbox(
+        f"Usar las Ts generadas para {current_period}",
+        key=use_generated_key,
+        help=(
+            "Al activarla, se precargan las fechas, inflación y SMMLV. "
+            "Los parámetros solo se guardan al pulsar «Guardar parámetros»; "
+            "los archivos se copian después de preparar el período."
+        ),
+        disabled=running or is_confirming_period,
+        on_change=prefill_generated_parameters,
+        args=(motor["reserve"], current_period, motor_key),
+    )
+    if use_generated:
+        generated_period = st.session_state.get(generated_period_state_key)
+        if generated_period:
+            selected_generated = find_generation(motor["reserve"], generated_period)
+        if selected_generated is None:
+            st.warning(
+                "La generación seleccionada ya no está disponible. "
+                "Desmarque la casilla para continuar con carga manual."
+            )
+        else:
+            st.success(
+                f"Se usarán las Ts de {generated_period}. "
+                "Puede sustituir Nuevo o Stock desde «2. Archivos de entrada»."
+            )
 
 st.subheader("1. Parámetros")
 st.markdown(
@@ -424,26 +508,66 @@ effective_config.loc[config_mask, "Valor"] = (
     effective_config.loc[config_mask, "Parametro"].map(edited_values)
 )
 folder = month_folder(effective_config)
+generated_period_mismatch = False
+if generated_period:
+    expected_dates = (
+        selected_generated is not None
+        and current_values["Fecha valoración t"]
+        == selected_generated.valuation_date.strftime("%Y/%m/%d")
+        and current_values["Fecha Cierre"]
+        == selected_generated.valuation_date.strftime("%Y/%m/%d")
+        and current_values["Fecha valoración t-1"]
+        == selected_generated.previous_valuation_date.strftime("%Y/%m/%d")
+    )
+    generated_period_mismatch = folder != generated_period or not expected_dates
+    if generated_period_mismatch:
+        st.warning(
+            f"Las Ts seleccionadas son del período {generated_period}. "
+            "Para copiarlas, Fecha Cierre, Fecha valoración t y Fecha valoración "
+            "t-1 deben coincidir con las fechas de esa generación. Desmarque la "
+            "casilla para continuar manualmente."
+        )
 
 if st.button(
     "Guardar parámetros",
     disabled=running
     or is_confirming_period
     or bool(invalid_parameters)
-    or not smmlv_confirmed,
+    or not smmlv_confirmed
+    or generated_period_mismatch,
 ):
     if (engine_dir / "inputs" / folder).exists():
         st.session_state["period_setup_pending"] = {
             "motor_key": motor_key,
+            "reserve": motor["reserve"],
             "folder": folder,
             "stage": "ask",
+            "generated_period": generated_period,
         }
     else:
         save_config(engine_dir, config, edited, motor["config_files"])
-        st.session_state["period_messages"] = [
+        messages = [
             "Parámetros guardados.",
             *prepare_period_folder(engine_dir, folder),
         ]
+        errors = []
+        if generated_period:
+            try:
+                messages.append(
+                    copy_selected_generated_ts(
+                        motor["reserve"],
+                        generated_period,
+                        folder,
+                        engine_dir / "inputs" / folder / "t_consolidada",
+                    )
+                )
+            except (OSError, ValueError) as error:
+                errors.append(
+                    f"Los parámetros se guardaron, pero no se pudieron copiar "
+                    f"las Ts seleccionadas: {error}"
+                )
+        st.session_state["period_messages"] = messages
+        st.session_state["period_errors"] = errors
     st.rerun()
 
 if is_confirming_period:
@@ -472,7 +596,8 @@ if is_confirming_period:
         st.error(
             "Al confirmar, se guardarán los parámetros, se reemplazará la carpeta "
             "parametros con la del periodo anterior más reciente y se vaciarán "
-            "salida y t_consolidada."
+            "salida y t_consolidada. Después de prepararla, se copiarán las Ts "
+            "seleccionadas si activó esa opción."
         )
         confirm_column, cancel_column = st.columns(2)
         if confirm_column.button(
@@ -481,10 +606,32 @@ if is_confirming_period:
             key=f"period_confirm_{motor_key}_{pending_folder}",
         ):
             save_config(engine_dir, config, edited, motor["config_files"])
-            st.session_state["period_messages"] = [
+            messages = [
                 "Parámetros guardados.",
                 *prepare_period_folder(engine_dir, pending_folder),
             ]
+            errors = []
+            pending_generated_period = pending_setup.get("generated_period")
+            if pending_generated_period:
+                try:
+                    messages.append(
+                        copy_selected_generated_ts(
+                            pending_setup.get("reserve", motor["reserve"]),
+                            pending_generated_period,
+                            pending_folder,
+                            engine_dir
+                            / "inputs"
+                            / pending_folder
+                            / "t_consolidada",
+                        )
+                    )
+                except (OSError, ValueError) as error:
+                    errors.append(
+                        "Los parámetros se guardaron, pero no se pudieron copiar "
+                        f"las Ts seleccionadas: {error}"
+                    )
+            st.session_state["period_messages"] = messages
+            st.session_state["period_errors"] = errors
             st.session_state.pop("period_setup_pending", None)
             st.rerun()
         if cancel_column.button(
@@ -499,6 +646,8 @@ if is_confirming_period:
 
 for line in st.session_state.pop("period_messages", []):
     st.info(line)
+for line in st.session_state.pop("period_errors", []):
+    st.error(line)
 st.caption(f"Carpeta de trabajo según Fecha Cierre: inputs/{folder}.")
 if motor_key == "arl":
     st.caption(

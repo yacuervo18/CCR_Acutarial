@@ -1,9 +1,24 @@
 {
-  "fecha_valoracion": "2026-08-31",
-  "fecha_minima_prod_nueva": "202301",
-  "inflacion": 6.03,
-  "smmlv": 1750905.0,
-  "interes_real": 4.0,
-  "ramo": "094",
-  "compania": "22"
+  "ramo_activo": "LEY100",
+  "ARL": {
+    "fecha_valoracion": "2026-08-31",
+    "fecha_minima_prod_nueva": "202301",
+    "inflacion": 6.03,
+    "smmlv": 1750905.0,
+    "interes_real": 4.0,
+    "ramo": "094",
+    "compania": "22"
+  },
+  "LEY100": {
+    "fecha_valoracion": "2026-08-31",
+    "fecha_minima_prod_nueva": "202408",
+    "inflacion": 6.03,
+    "smmlv": 1750905.0,
+    "interes_real": 4.0,
+    "ramo": "087",
+    "compania": "02",
+    "fecha_corte_vigencia": "2024-08-01",
+    "stock_vacia": true,
+    "nuevo_vacia": false
+  }
 }

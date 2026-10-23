@@ -64,11 +64,29 @@ componente automáticamente.
 
 Los parámetros se guardan por ramo en `generador_t\params.json`. Las
 credenciales se transmiten al proceso hijo por entrada estándar y no se
-guardan en ese archivo ni en la bitácora. Stock y Nuevo quedan bajo
-`generador_t\ARL\<AAAAMM>` o `generador_t\Ley100\<AAAAMM>`; no se
-copian automáticamente a las carpetas de los motores. Solo se permite una
-generación a la vez. La carpeta de referencia del generador ya no está dentro
-del proyecto; la copia de respaldo se conserva fuera del repositorio.
+guardan en ese archivo ni en la bitácora. El consolidado total, Stock, Nuevo
+y el `manifest.json` de la corrida quedan bajo
+`generador_t\ARL\<AAAAMM>\6_Ts_consolidadas` o
+`generador_t\Ley100\<AAAAMM>\6_Ts_consolidadas`; la interfaz permite descargar
+los archivos. En el motor Ley 100, un selector de solo lectura busca la
+generación completa del mes calendario actual: al activarlo precarga fechas,
+inflación y SMMLV, pero los parámetros solo se guardan al pulsar
+**Guardar parámetros**. El aviso siempre corresponde al período calendario
+actual y, si aún no hay generación válida, permite continuar con la carga
+manual.
+Stock y Nuevo se copian después de preparar la carpeta del período, sin
+sobrescribir archivos en silencio; cualquiera de los dos puede reemplazarse
+desde la carga manual habitual. Si no se activa, el flujo manual del motor no
+cambia. ARL sigue el mismo patrón para sus archivos RM, validando una
+generación ARL del período actual y su codificación UTF-8; la salida Sura
+continúa generándose por el motor.
+En RM Ley 100 se puede detener la generación después del consolidado total y
+buscar pólizas por `NMPOLIZA` antes de generar Stock/Nuevo. Las correcciones
+se guardan en una copia revisada y una bitácora asociadas a esa corrida; el
+total original no se modifica y las correcciones no se reaplican al regenerar
+el periodo. Solo se permite una generación a la vez. La carpeta de referencia
+del generador ya no está dentro del proyecto; la copia de respaldo se conserva
+fuera del repositorio.
 
 La aplicación usa SQLite en `CCR/data/ccr.db`. En la primera ejecución crea
 automáticamente el periodo del mes actual y sus tareas por defecto. Los meses

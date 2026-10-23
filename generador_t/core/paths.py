@@ -8,7 +8,7 @@ Todo lo de una corrida queda organizado por ramo y por mes:
         3_Pantallazos_evidencia/     evidencias SOX arriba/abajo (solo ARL)
         4_Ts_integridad/             T1..T11 con hoja Integridad y Exactitud (solo ARL)
         5_Macro_consolidada/         copia de la macro ya calculada
-        6_Ts_consolidadas/           {mes}_t_consolidada_Stock_RM.csv / _Nuevo_RM.csv
+        6_Ts_consolidadas/           {mes}_t_consolidada_RM.csv (total), _Stock_RM.csv, _Nuevo_RM.csv y manifest.json
         logs/                        detalle de cada corrida (panel de seguimiento)
     Ley100/202608/
         (misma estructura; sin 3 y 4, y archivos con sufijo _Ley100)
@@ -88,6 +88,45 @@ def consolidada_csv_path(clave: str, tipo: str) -> Path:
     carpeta_ramo, mes = _partes(clave)
     sufijo = SUFIJO_CONSOLIDADAS[carpeta_ramo]
     return consolidadas_dir(clave) / f"{mes}_t_consolidada_{tipo}_{sufijo}.csv"
+
+
+def consolidada_stock_completo_path(clave: str) -> Path:
+    """Stock completo de evidencia cuando el Stock operativo se genera vacio."""
+    carpeta_ramo, mes = _partes(clave)
+    sufijo = SUFIJO_CONSOLIDADAS[carpeta_ramo]
+    return consolidadas_dir(clave) / f"{mes}_t_consolidada_Stock_completo_{sufijo}.csv"
+
+
+def consolidada_total_path(clave: str) -> Path:
+    """Consolidado total (antes de partir en Stock y Nuevo). Ej: Ley100/202608/6_Ts_consolidadas/202608_t_consolidada_Ley100.csv"""
+    carpeta_ramo, mes = _partes(clave)
+    sufijo = SUFIJO_CONSOLIDADAS[carpeta_ramo]
+    return consolidadas_dir(clave) / f"{mes}_t_consolidada_{sufijo}.csv"
+
+
+def consolidada_revisada_path(clave: str, run_id: str) -> Path:
+    """Copia revisada del consolidado total para una corrida concreta."""
+    carpeta_ramo, mes = _partes(clave)
+    if carpeta_ramo != "Ley100":
+        raise ValueError("La revisión de pólizas solo está habilitada para Ley 100.")
+    if not run_id.isalnum() or len(run_id) != 32:
+        raise ValueError("El identificador de corrida no es válido.")
+    return consolidadas_dir(clave) / f"{mes}_t_consolidada_Ley100_revisado_{run_id}.csv"
+
+
+def correcciones_path(clave: str, run_id: str) -> Path:
+    """Bitácora de cambios de póliza para una corrida concreta."""
+    carpeta_ramo, mes = _partes(clave)
+    if carpeta_ramo != "Ley100":
+        raise ValueError("La revisión de pólizas solo está habilitada para Ley 100.")
+    if not run_id.isalnum() or len(run_id) != 32:
+        raise ValueError("El identificador de corrida no es válido.")
+    return consolidadas_dir(clave) / f"{mes}_correcciones_{run_id}.jsonl"
+
+
+def manifest_path(clave: str) -> Path:
+    """Registro de la corrida (parametros y conteos), junto a las Ts consolidadas."""
+    return consolidadas_dir(clave) / "manifest.json"
 
 
 def logs_dir(clave: str) -> Path:

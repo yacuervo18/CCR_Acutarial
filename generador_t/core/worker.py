@@ -10,7 +10,7 @@ from typing import Any
 import msvcrt
 
 from .params import DEFAULTS_POR_RAMO, Params
-from .runner import GenerationError, generar
+from .runner import GenerationError, generar, partir_consolidado
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
@@ -64,6 +64,29 @@ def _run(payload: dict[str, Any]) -> int:
         defaults["compania"],
     ):
         raise ValueError("El ramo o la compañía no corresponden al proceso seleccionado.")
+    action = payload.get("action", "generate")
+    if action == "split":
+        with GeneratorLock():
+            result = partir_consolidado(
+                params,
+                log=lambda message: _emit("log", message=message),
+                progreso=lambda step, current, total, message: _emit(
+                    "progress",
+                    step=step,
+                    current=current,
+                    total=total,
+                    message=message,
+                ),
+            )
+        _emit(
+            "completed",
+            stock=str(result.stock) if result.stock else None,
+            nuevo=str(result.nuevo) if result.nuevo else None,
+            total=str(result.total) if result.total else None,
+        )
+        return 0
+    if action != "generate":
+        raise ValueError("La acción solicitada no está admitida.")
     credentials = payload["credentials"]
     if not isinstance(credentials, dict) or any(
         not isinstance(credentials.get(key), str)
@@ -84,11 +107,13 @@ def _run(payload: dict[str, Any]) -> int:
                 total=total,
                 message=message,
             ),
+            revisar_antes_de_partir=payload.get("revisar_antes_de_partir") is True,
         )
     _emit(
         "completed",
-        stock=str(result.stock),
-        nuevo=str(result.nuevo),
+        stock=str(result.stock) if result.stock else None,
+        nuevo=str(result.nuevo) if result.nuevo else None,
+        total=str(result.total) if result.total else None,
     )
     return 0
 

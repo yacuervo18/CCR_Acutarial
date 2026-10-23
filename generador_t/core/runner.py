@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence, TypeVar
 
-from . import consolidacion, evidencias, split_stock_nuevo
+from . import consolidacion, evidencias, paths, split_stock_nuevo
 from .descarga_ts import descargar_ts
 from .params import Params
 
@@ -24,8 +24,9 @@ def _sin_progreso(paso: str, actual: int, total: int, mensaje: str) -> None:
 
 @dataclass(frozen=True)
 class GeneratedFiles:
-    stock: Path
-    nuevo: Path
+    stock: Path | None
+    nuevo: Path | None
+    total: Path | None = None
 
 
 class GenerationError(RuntimeError):
@@ -46,8 +47,13 @@ def generar(
     contrasena_macro: str,
     log: Logger = _sin_log,
     progreso: Progress = _sin_progreso,
+    revisar_antes_de_partir: bool = False,
 ) -> GeneratedFiles:
     """Ejecuta el proceso completo y devuelve las rutas de Stock y Nuevo.
+
+    Con revisar_antes_de_partir=True se detiene tras guardar el consolidado
+    total (stock y nuevo quedan en None); luego se continua con
+    partir_consolidado(), que no necesita credenciales.
 
     Las credenciales solo se usan en memoria durante esta llamada. No se
     guardan en los parametros y se filtran de los mensajes de log y error.
@@ -123,6 +129,16 @@ def generar(
         contrasena_macro,
         True,
     )
+    if revisar_antes_de_partir:
+        total, _ = correr_paso(
+            "Consolidado total",
+            split_stock_nuevo.generar_consolidado_total,
+            headers,
+            rows,
+            params,
+        )
+        return GeneratedFiles(stock=None, nuevo=None, total=total)
+
     stock, nuevo = correr_paso(
         "Generacion de Stock y Nuevo",
         split_stock_nuevo.generar_ts_consolidadas,
@@ -130,4 +146,33 @@ def generar(
         rows,
         params,
     )
-    return GeneratedFiles(stock=stock, nuevo=nuevo)
+    return GeneratedFiles(
+        stock=stock,
+        nuevo=nuevo,
+        total=paths.consolidada_total_path(params.clave_periodo),
+    )
+
+
+def partir_consolidado(
+    params: Params,
+    log: Logger = _sin_log,
+    progreso: Progress = _sin_progreso,
+) -> GeneratedFiles:
+    """Etapa B: parte en Stock y Nuevo el consolidado total ya guardado."""
+    log("Iniciando: Generacion de Stock y Nuevo (desde el consolidado total)")
+
+    def progreso_paso(actual: int, total: int, mensaje: str) -> None:
+        progreso("Generacion de Stock y Nuevo", actual, total, mensaje)
+
+    try:
+        stock, nuevo = split_stock_nuevo.partir_desde_total(params, log=log, progreso=progreso_paso)
+    except Exception as error:
+        mensaje = f"Fallo en 'Generacion de Stock y Nuevo': {str(error).strip() or type(error).__name__}"
+        log(mensaje)
+        raise GenerationError(mensaje) from None
+    log("Terminado: Generacion de Stock y Nuevo")
+    return GeneratedFiles(
+        stock=stock,
+        nuevo=nuevo,
+        total=paths.consolidada_total_path(params.clave_periodo),
+    )
