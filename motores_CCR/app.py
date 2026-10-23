@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from ts_generadas import find_generation
+from ts_generadas import find_generation, list_generations
 from ts_import import copy_generated_ts
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -133,11 +133,19 @@ def prepare_period_folder(engine_dir: Path, folder: str) -> list[str]:
     previous = sorted(
         path
         for path in inputs_dir.iterdir()
-        if path.is_dir() and path.name.isdigit() and path.name < folder
-        and (path / "parametros").is_dir()
+        if path.is_dir() and path.name.isdigit() and (path / "parametros").is_dir()
     ) if inputs_dir.exists() else []
+    # Si no hay mes anterior, usar el más reciente disponible (hacia adelante)
     if previous:
-        source = previous[-1]
+        previous_before = [p for p in previous if p.name < folder]
+        if previous_before:
+            source = previous_before[-1]
+        else:
+            # No hay anterior: usar el más reciente disponible
+            source = sorted(previous, reverse=True)[0]
+    else:
+        source = None
+    if source is not None:
         if (target / "parametros").exists():
             shutil.rmtree(target / "parametros")
         shutil.copytree(source / "parametros", target / "parametros")
@@ -145,7 +153,8 @@ def prepare_period_folder(engine_dir: Path, folder: str) -> list[str]:
     else:
         (target / "parametros").mkdir(parents=True, exist_ok=True)
         messages.append(
-            "No hay un periodo anterior para copiar; cargue los archivos de parametros."
+            "La carpeta parametros está vacía porque no hay períodos recientes "
+            "para copiar la información. Cargue los archivos de parámetros manualmente."
         )
 
     clear_folder(target / "salida")
@@ -381,24 +390,37 @@ selected_generated = None
 use_generated_key = f"use_generated_ts_{motor_key}"
 generated_period_state_key = f"generated_ts_period_{motor_key}"
 current_period = date.today().strftime("%Y%m")
-current_generated = find_generation(motor["reserve"], current_period)
+# Períodos disponibles: los que existen en generador_t + el mes calendario actual
+available_periods = sorted(
+    {g.period for g in list_generations(motor["reserve"])}
+    | {current_period},
+    reverse=True,
+)
+selector, _ = st.columns([1.5, 4.5])
+with selector:
+    selected_period = st.selectbox(
+        "¿Qué período desea calcular?",
+        available_periods,
+        index=available_periods.index(current_period) if current_period in available_periods else 0,
+        key=f"period_selector_{motor_key}",
+    )
+current_generated = find_generation(motor["reserve"], selected_period)
 if current_generated is None:
     st.session_state[use_generated_key] = False
     st.session_state.pop(generated_period_state_key, None)
     st.info(
-        f":small[Para el período {current_period} no hay Ts generadas completas y "
-        f"válidas para {motor['label']}. Puede continuar realizando la "
-        "parametrización y carga de los archivos de manera manual en la "
-        "sección 2 de este motor.]"
+        f":small[Para el período seleccionado no hay insumos generados para "
+        f"{motor['label']}. Puede continuar con la parametrización manual, y cargar "
+        f"lo insumos requeridos para el calculo en la sección 2 de este motor.]"
     )
 else:
     st.caption(
-        f"Ts {motor['label']} disponibles para {current_period} · "
+        f"Insumos generados para {selected_period} · "
         f"Nuevo: {current_generated.new_rows:,} pólizas · "
         f"Stock: {current_generated.stock_rows:,} pólizas."
     )
     use_generated = st.checkbox(
-        f"Usar las Ts generadas para {current_period}",
+        f"Usar para el calculo los insumos y parametros del periodo {selected_period}",
         key=use_generated_key,
         help=(
             "Al activarla, se precargan las fechas, inflación y SMMLV. "
@@ -407,7 +429,7 @@ else:
         ),
         disabled=running or is_confirming_period,
         on_change=prefill_generated_parameters,
-        args=(motor["reserve"], current_period, motor_key),
+        args=(motor["reserve"], selected_period, motor_key),
     )
     if use_generated:
         generated_period = st.session_state.get(generated_period_state_key)
@@ -420,8 +442,10 @@ else:
             )
         else:
             st.success(
-                f"Se usarán las Ts de {generated_period}. "
-                "Puede sustituir Nuevo o Stock desde «2. Archivos de entrada»."
+                ":small[En la sección «1. Parametros» se acaban de precargar los parametros "
+                "del periodo seleccionado y se usarán los insumos de ese periodo. "
+                "Recuerda validar parámetros, puede cambiar manualmente los parametros "
+                "y remplazar los insumos Nuevo o Stock desde la sección «2. Archivos de entrada»]"
             )
 
 st.subheader("1. Parámetros")
@@ -508,6 +532,18 @@ effective_config.loc[config_mask, "Valor"] = (
     effective_config.loc[config_mask, "Parametro"].map(edited_values)
 )
 folder = month_folder(effective_config)
+# Recuadro azul: recordar guardar parámetros antes de que se efectúen cambios
+st.info(
+    ":small[Recuerda dar clic en guardar parámetros para que se efectúen los cambios]",
+)
+# Validación de inflación y SMMLV: si no hay generación, verificar que no estén vacíos
+if current_generated is None:
+    for param in ("Inflacion", "SMMLV"):
+        if not current_values.get(param, "").strip():
+            st.warning(
+                f"Verifique que {param} esté bien definido. No hay generación "
+                f"para {selected_period}, por lo que debe ingresar los valores manualmente."
+            )
 generated_period_mismatch = False
 if generated_period:
     expected_dates = (
