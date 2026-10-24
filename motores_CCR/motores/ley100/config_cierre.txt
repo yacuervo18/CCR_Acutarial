@@ -3,7 +3,7 @@ Fecha valoración t-1;2026/08/31
 Fecha valoración t;2026/09/30
 Fecha Cierre;2026/09/30
 SMMLV;1750905
-Inflacion;6.29
+Inflacion;6.24
 Salida;Ley100.xlsx
 Mortalidad;False
 Informe;False

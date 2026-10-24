@@ -79,6 +79,20 @@ def macro_copia_path(clave: str) -> Path:
     return periodo_dir(clave) / "5_Macro_consolidada" / f"Macro_consolidacion_{carpeta_ramo}_{mes}.xlsm"
 
 
+def macro_con_correcciones_path(clave: str, run_id: str) -> Path:
+    """Copia de la macro calculada con las correcciones de póliza de una corrida."""
+    carpeta_ramo, mes = _partes(clave)
+    if carpeta_ramo != "Ley100":
+        raise ValueError("La revisión de pólizas solo está habilitada para Ley 100.")
+    if not run_id.isalnum() or len(run_id) != 32:
+        raise ValueError("El identificador de corrida no es válido.")
+    return (
+        periodo_dir(clave)
+        / "5_Macro_consolidada"
+        / f"Macro_consolidacion_{carpeta_ramo}_{mes}_con_correcciones_{run_id}.xlsm"
+    )
+
+
 def consolidadas_dir(clave: str) -> Path:
     return periodo_dir(clave) / "6_Ts_consolidadas"
 

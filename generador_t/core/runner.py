@@ -1,6 +1,7 @@
 """Orquesta la generacion de Stock/Nuevo sin depender de una interfaz."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence, TypeVar
@@ -171,8 +172,30 @@ def partir_consolidado(
         log(mensaje)
         raise GenerationError(mensaje) from None
     log("Terminado: Generacion de Stock y Nuevo")
+    _macro_con_correcciones(params, log)
     return GeneratedFiles(
         stock=stock,
         nuevo=nuevo,
         total=paths.consolidada_total_path(params.clave_periodo),
     )
+
+
+def _macro_con_correcciones(params: Params, log: Logger) -> None:
+    """Copia de la macro con las correcciones de póliza. Nunca detiene la generación."""
+    try:
+        ruta = paths.manifest_path(params.clave_periodo)
+        if not ruta.is_file():
+            return
+        manifest = json.loads(ruta.read_text(encoding="utf-8"))
+        run_id = manifest.get("run_id") if isinstance(manifest, dict) else None
+        if not manifest.get("cantidad_correcciones") or not isinstance(run_id, str):
+            return
+        log("Aplicando las correcciones de póliza a una copia de la macro (puede tardar un par de minutos)")
+        from . import macro_correcciones
+
+        macro_correcciones.aplicar_correcciones_a_macro(params, run_id, log)
+    except Exception as error:
+        log(
+            "Aviso: no se pudo crear la macro con correcciones; el ZIP traerá la macro original. "
+            f"Detalle: {str(error).strip() or type(error).__name__}"
+        )

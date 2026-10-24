@@ -17,6 +17,7 @@ from selenium import webdriver
 from selenium.common.exceptions import (
     ElementNotInteractableException,
     NoSuchElementException,
+    StaleElementReferenceException,
     TimeoutException,
 )
 from selenium.webdriver.chrome.options import Options
@@ -110,27 +111,45 @@ def _get_element(driver, locator, timeout: int = 20):
 
 
 def _click(driver, locator, timeout: int = 20) -> None:
-    element = _get_element(driver, locator, timeout)
-    try:
-        WebDriverWait(driver, timeout).until(EC.element_to_be_clickable(locator)).click()
-    except (ElementNotInteractableException, TimeoutException):
-        driver.execute_script("arguments[0].click();", element)
+    for intento in range(3):
+        try:
+            element = _get_element(driver, locator, timeout)
+            try:
+                WebDriverWait(driver, timeout).until(
+                    EC.element_to_be_clickable(locator)
+                ).click()
+            except (ElementNotInteractableException, TimeoutException):
+                element = _get_element(driver, locator, timeout)
+                driver.execute_script("arguments[0].click();", element)
+            return
+        except StaleElementReferenceException:
+            if intento == 2:
+                raise
 
 
 def _send_keys(driver, locator, keys, timeout: int = 20) -> None:
-    element = _get_element(driver, locator, timeout)
-    try:
-        element = WebDriverWait(driver, timeout).until(EC.visibility_of_element_located(locator))
-        element.clear()
-        element.send_keys(keys)
-    except (ElementNotInteractableException, TimeoutException):
-        driver.execute_script(
-            "arguments[0].value = arguments[1];"
-            "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
-            "arguments[0].dispatchEvent(new Event('change', {bubbles: true}));",
-            element,
-            keys,
-        )
+    for intento in range(3):
+        try:
+            element = _get_element(driver, locator, timeout)
+            try:
+                element = WebDriverWait(driver, timeout).until(
+                    EC.visibility_of_element_located(locator)
+                )
+                element.clear()
+                element.send_keys(keys)
+            except (ElementNotInteractableException, TimeoutException):
+                element = _get_element(driver, locator, timeout)
+                driver.execute_script(
+                    "arguments[0].value = arguments[1];"
+                    "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
+                    "arguments[0].dispatchEvent(new Event('change', {bubbles: true}));",
+                    element,
+                    keys,
+                )
+            return
+        except StaleElementReferenceException:
+            if intento == 2:
+                raise
 
 
 def _seleccionar(driver, select_xpath: str, indice: int, timeout: int = 20) -> None:

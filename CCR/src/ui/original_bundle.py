@@ -67,6 +67,10 @@ def create_original_bundle(
 
     macro_name = f"Macro_consolidacion_{'Ley100' if ramo_folder == 'Ley100' else 'ARL'}_{period}.xlsm"
     macro_source = _period_file(macro_dir, macro_name, "macro calculada")
+    if ramo_folder == "Ley100" and manifest.get("cantidad_correcciones"):
+        corrected = macro_dir / f"Macro_consolidacion_Ley100_{period}_con_correcciones_{run_id}.xlsm"
+        if corrected.is_file():
+            macro_source = corrected
     ts_sources = [
         _period_file(input_dir, f"T{number}.xlsx", f"T{number}")
         for number in range(1, 12)

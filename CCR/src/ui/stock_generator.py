@@ -44,12 +44,19 @@ RAMOS = {
 
 @dataclass
 class GeneratorJob:
-    process: subprocess.Popen[str]
+    process: subprocess.Popen[str] | _CompletedProcess
     log_path: Path
     tipo_ramo: str
     periodo: str
     params: dict[str, Any]
     review_requested: bool = False
+    completed_event: dict[str, Any] | None = None
+    recovered: bool = False
+
+
+class _CompletedProcess:
+    def poll(self) -> int:
+        return 0
 
 
 _JOBS: dict[str, GeneratorJob] = {}
@@ -253,6 +260,74 @@ def _review_paths(
     if registered_name not in (None, reviewed_name):
         raise ValueError("El consolidado revisado no corresponde a la corrida activa.")
     return run_id, output_dir / reviewed_name, output_dir / audit_name
+
+
+def _recover_completed_review_job(code: str) -> GeneratorJob | None:
+    branch = RAMOS[code]
+    if branch["tipo"] != "LEY100":
+        return None
+
+    saved = load_branch_params(code)
+    period = str(saved["fecha_valoracion"]).replace("-", "")[:6]
+    output_dir = GENERATOR_ROOT / "Ley100" / period / "6_Ts_consolidadas"
+    manifest_path = output_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"No se pudo recuperar el registro de generación: {error}") from error
+    if not isinstance(manifest, dict):
+        raise ValueError("El registro de generación tiene un formato inválido.")
+    if manifest.get("estado") != "consolidado_total":
+        return None
+
+    run_id = manifest.get("run_id")
+    if not isinstance(run_id, str) or len(run_id) != 32 or not run_id.isalnum():
+        raise ValueError("El registro de generación no contiene un identificador válido.")
+    total_path = output_dir / f"{period}_t_consolidada_Ley100.csv"
+    if not total_path.is_file():
+        raise ValueError("El registro indica un consolidado total, pero falta el archivo.")
+
+    review_requested = (
+        manifest.get("revision_habilitada") is True
+        or bool(manifest.get("archivo_revisado"))
+        or int(manifest.get("cantidad_correcciones", 0)) > 0
+    )
+    if not review_requested:
+        return None
+
+    cutoff = manifest.get("fecha_corte_vigencia")
+    valuation_date = manifest.get("fecha_valoracion_t")
+    if not isinstance(cutoff, str) or not isinstance(valuation_date, str):
+        raise ValueError("Al registro de generación le faltan fechas para continuar.")
+    params = {
+        "fecha_valoracion": valuation_date,
+        "fecha_minima_prod_nueva": cutoff[:7].replace("-", ""),
+        "inflacion": manifest.get("inflacion"),
+        "smmlv": manifest.get("smmlv"),
+        "interes_real": manifest.get("interes_real"),
+        "ramo": branch["ramo"],
+        "compania": branch["compania"],
+        "fecha_corte_vigencia": cutoff,
+        "stock_vacia": manifest.get("stock_vacia", False),
+        "nuevo_vacia": manifest.get("nuevo_vacia", False),
+    }
+    return GeneratorJob(
+        _CompletedProcess(),
+        RUN_LOGS / f"{branch['tipo']}_{period}_recuperado.jsonl",
+        branch["tipo"],
+        period,
+        params,
+        review_requested=True,
+        completed_event={
+            "type": "completed",
+            "total": str(total_path),
+            "stock": None,
+            "nuevo": None,
+        },
+        recovered=True,
+    )
 
 
 def _write_run_manifest(path: Path, manifest: dict[str, Any]) -> None:
@@ -530,7 +605,7 @@ def _render_job_monitor_content(key: str) -> None:
         (event for event in reversed(events) if event.get("type") == "progress"),
         None,
     )
-    completed = next(
+    completed = job.completed_event or next(
         (event for event in reversed(events) if event.get("type") == "completed"),
         None,
     )
@@ -559,6 +634,16 @@ def _render_job_monitor_content(key: str) -> None:
                 "Consolidado total generado. Puedes buscar una póliza, guardar correcciones "
                 "para esta corrida y luego generar Stock/Nuevo."
             )
+            if job.review_requested and job.tipo_ramo == "LEY100":
+                try:
+                    manifest_path, manifest = _read_run_manifest(job)
+                    if manifest.get("revision_habilitada") is not True:
+                        manifest["revision_habilitada"] = True
+                        _write_run_manifest(manifest_path, manifest)
+                except (OSError, ValueError, TypeError) as error:
+                    st.error(f"No se pudo guardar el estado de revisión: {error}")
+            if job.recovered:
+                st.caption("Se recuperó esta corrida desde los archivos guardados.")
         _render_generated_downloads(job, completed)
         if (
             job.review_requested
@@ -641,7 +726,9 @@ def _render_live_job_monitor(key: str) -> None:
 def _period_has_files(code: str, month: str) -> bool:
     branch_folder = "Ley100" if RAMOS[code]["tipo"] == "LEY100" else "ARL"
     period_dir = GENERATOR_ROOT / branch_folder / month
-    return period_dir.is_dir() and any(period_dir.iterdir())
+    # Solo considera que hay archivos si existe manifest completo (generación válida)
+    manifest_path = period_dir / "6_Ts_consolidadas" / "manifest.json"
+    return period_dir.is_dir() and manifest_path.is_file()
 
 
 def _clear_credentials(code: str) -> None:
@@ -674,6 +761,14 @@ def render_stock_generator(code: str, readonly: bool) -> None:
     state_key = f"stock-{code}-show-form"
     job_key = _job_key(branch["tipo"])
     job = _JOBS.get(job_key)
+    if job is None:
+        try:
+            job = _recover_completed_review_job(code)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+            st.error(f"No se pudo recuperar la revisión guardada: {error}")
+        else:
+            if job is not None:
+                _JOBS[job_key] = job
     running_job = next(
         (item for item in _JOBS.values() if item.process.poll() is None),
         None,
@@ -722,9 +817,14 @@ def render_stock_generator(code: str, readonly: bool) -> None:
                     initial = None
 
                 if initial is not None:
-                    selected_close_date = st.session_state.get(
-                        f"stock-{code}-fecha", close_date
-                    )
+                    close_cols = st.columns(3)
+                    with close_cols[0]:
+                        fecha_valoracion = st.date_input(
+                            "Fecha de cierre",
+                            value=close_date,
+                            key=f"stock-{code}-fecha",
+                        )
+                    selected_close_date = fecha_valoracion
                     if not isinstance(selected_close_date, date):
                         selected_close_date = close_date
                     period_month = selected_close_date.strftime("%Y%m")
@@ -735,25 +835,24 @@ def render_stock_generator(code: str, readonly: bool) -> None:
                             "no borra la carpeta, pero puede reemplazar archivos con "
                             "el mismo nombre. Revisa la bitácora y confirma antes de continuar."
                         )
+                    else:
+                        st.info(
+                            f"No hay archivos para este ramo y período ({period_month}). "
+                            "Puede continuar con la parametrización manual."
+                        )
                     if not GENERATOR_PYTHON.is_file():
                         st.info("El formulario se puede revisar, pero no iniciar hasta preparar el entorno.")
 
                     with st.form(f"stock-{code}-form"):
                         dates = st.columns(3)
                         with dates[0]:
-                            fecha_valoracion = st.date_input(
-                                "Fecha de cierre",
-                                value=close_date,
-                                key=f"stock-{code}-fecha",
-                            )
-                        with dates[1]:
                             fecha_minima = st.date_input(
                                 "Fecha mínima de nueva producción (T11)",
                                 value=min_date,
                                 key=f"stock-{code}-minima",
                                 help="Se guarda como AAAAMM.",
                             )
-                        with dates[2]:
+                        with dates[1]:
                             fecha_corte = st.date_input(
                                 "Fecha de corte Stock/Nuevo",
                                 value=cutoff_date,

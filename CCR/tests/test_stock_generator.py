@@ -130,8 +130,9 @@ def test_start_generator_sends_credentials_only_over_stdin(monkeypatch, tmp_path
     assert process.stdin.closed
 
 
-def test_stock_generator_form_renders_without_starting_a_job():
+def test_stock_generator_form_renders_without_starting_a_job(monkeypatch):
     stock_generator._JOBS.clear()
+    monkeypatch.setattr(stock_generator, "_recover_completed_review_job", lambda code: None)
     app = AppTest.from_string(
         "from src.ui.stock_generator import render_stock_generator\n"
         "render_stock_generator('rm_ley_100', False)"
@@ -212,6 +213,77 @@ def test_running_job_cannot_be_dismissed(tmp_path, monkeypatch):
     assert not app.exception
     assert not any(button.label == "Descartar resultado anterior" for button in app.button)
     assert stock_generator._JOBS["ARL"] is job
+
+
+def test_review_editor_is_restored_from_completed_manifest(tmp_path, monkeypatch):
+    period = "202609"
+    run_id = "b" * 32
+    output_dir = tmp_path / "Ley100" / period / "6_Ts_consolidadas"
+    output_dir.mkdir(parents=True)
+    total_name = f"{period}_t_consolidada_Ley100.csv"
+    reviewed_name = f"{period}_t_consolidada_Ley100_revisado_{run_id}.csv"
+    (output_dir / total_name).write_text(
+        "NMPOLIZA;Asegurado;TASA\n001;7;1.2\n",
+        encoding="latin-1",
+    )
+    (output_dir / reviewed_name).write_text(
+        "NMPOLIZA;Asegurado;TASA\n001;7;1.25\n",
+        encoding="latin-1",
+    )
+    (output_dir / f"{period}_correcciones_{run_id}.jsonl").write_text(
+        '{"run_id":"' + run_id + '","NMPOLIZA":"001"}\n',
+        encoding="utf-8",
+    )
+    manifest_path = output_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "tipo_ramo": "LEY100",
+                "periodo": period,
+                "estado": "consolidado_total",
+                "run_id": run_id,
+                "archivo_revisado": reviewed_name,
+                "cantidad_correcciones": 1,
+                "fecha_valoracion_t": "2026-09-30",
+                "fecha_corte_vigencia": "2024-08-01",
+                "inflacion": 6.24,
+                "smmlv": 1750905.0,
+                "interes_real": 4.0,
+                "stock_vacia": True,
+                "nuevo_vacia": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(stock_generator, "GENERATOR_ROOT", tmp_path)
+    monkeypatch.setattr(stock_generator, "RUN_LOGS", tmp_path / "run_logs")
+    monkeypatch.setattr(
+        stock_generator,
+        "load_branch_params",
+        lambda code: {"fecha_valoracion": "2026-09-30"},
+    )
+    stock_generator._JOBS.clear()
+
+    app = AppTest.from_string(
+        "from pathlib import Path\n"
+        "from src.ui import stock_generator\n"
+        f"stock_generator.GENERATOR_ROOT = Path({str(tmp_path)!r})\n"
+        f"stock_generator.RUN_LOGS = Path({str(tmp_path / 'run_logs')!r})\n"
+        "stock_generator.load_branch_params = lambda code: "
+        "{'fecha_valoracion': '2026-09-30'}\n"
+        "stock_generator.render_stock_generator('rm_ley_100', False)"
+    ).run(timeout=30)
+
+    assert not app.exception
+    assert any(widget.label == "Número de póliza (NMPOLIZA)" for widget in app.text_input)
+    assert any(button.label == "Aplicar correcciones y generar Stock/Nuevo" for button in app.button)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["revision_habilitada"] is True
+
+    app.text_input[0].set_value("001").run()
+    next(button for button in app.button if button.label == "Buscar póliza").click().run()
+    assert not app.exception
+    assert any("Se encontraron 1 registro" in item.value for item in app.success)
 
 
 def test_generated_files_are_offered_as_three_downloads(tmp_path):
